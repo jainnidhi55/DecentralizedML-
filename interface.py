@@ -17,6 +17,7 @@ class client:
   
   def send_message(): #send message to server
     #execute the random delay
+    pass
 
 class server:
 
@@ -33,7 +34,10 @@ class message:
 
   # fields 
   # random delay
+  #Neha
+  pass
 
 class run_training:
-
+  #Neha
   def forward():
+    pass
