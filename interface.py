@@ -7,6 +7,7 @@ Original file is located at
     https://colab.research.google.com/drive/1m3AsFRknW0punAzrQfpVwqlmy_E1ftEn
 """
 
+# cindy
 class client:
 
   def train(): #train local round
@@ -17,6 +18,7 @@ class client:
   
   def send_message(): #send message to server
     #execute the random delay
+    pass
 
 class server: #NIDHI
 
@@ -33,7 +35,10 @@ class message:
 
   # fields 
   # random delay
+  #Neha
+  pass
 
 class run_training:
-
+  #Neha
   def forward():
+    pass
