@@ -9,8 +9,10 @@ Original file is located at
 
 # cindy
 class client:
+  # add fields
 
   def train(): #train local round
+    # sgd algo
     pass
   
   def recieve_training_info(): #receive info from server: data, training hyperparameters, etc.
