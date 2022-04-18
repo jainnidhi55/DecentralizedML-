@@ -20,7 +20,7 @@ class client:
     #execute the random delay
     pass
 
-class server: #NIDHI
+class server: #NIDHI2
 
   def replica_state(): #state to keep track of replicas for each client 
     pass
