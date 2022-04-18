@@ -18,7 +18,7 @@ class client:
   def send_message(): #send message to server
     #execute the random delay
 
-class server:
+class server: #NIDHI
 
   def replica_state(): #state to keep track of replicas for each client 
     pass
