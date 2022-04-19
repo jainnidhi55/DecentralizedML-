@@ -7,14 +7,41 @@ Original file is located at
     https://colab.research.google.com/drive/1m3AsFRknW0punAzrQfpVwqlmy_E1ftEn
 """
 
+import torch
+import torch.optim as optim
+
 # cindy
 class client:
-  # add fields
+  num_epochs = 1
+  random_seed = 0
+  train_set = None
+  batch_size = 128
+  model = None
+  # SGD inputs
+  params = None
+  lr = 0.1 # learning rate
+  momentum = 0
+  weight_decay = 0
+  dampening = 0
+  nesterov = False
+  maximize = False
 
   def train(): #train local round
     # sgd algo
-    pass
-  
+    torch.manual_seed(self.random_seed)
+    optimizer = optim.SGD(self.params, lr = self.lr, momentum = self.momentum, weight_decay = self.weight_decay, dampening = self.dampening, nesterov = self.nesterov, maximize = self.maximize)
+    losses = []
+    for epoch in range(num_epochs):
+      epoch_loss = 0.0
+      for data, target in train_set:
+        optimizer.zero_grad()
+        output = model(data)
+        loss = F.nll_loss(output, target)
+        epoch_loss += loss.item()
+        loss.backward()
+        optimizer.step()
+        losses.append(epoch_loss)
+
   def recieve_training_info(): #receive info from server: data, training hyperparameters, etc.
     pass
   
