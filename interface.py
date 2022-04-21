@@ -38,7 +38,7 @@ class client:
       for data, target in train_set:
         optimizer.zero_grad()
         output = model(data)
-        loss = F.nll_loss(output, target)
+        loss = F.nll_loss(output, target) #TODO, change the loss function
         epoch_loss += loss.item()
         loss.backward()
         optimizer.step()
@@ -51,7 +51,7 @@ class client:
     #execute the random delay
     pass
 
-class Server: #NIDHI2
+class Server:
   def __init__(self):
     self.client_id_to_metadata_dict = {} 
     #client_id_to_metadata_dict[client_uid] = (client object, replica_group_index)
