@@ -14,12 +14,12 @@ from multiprocessing import Process
 
 # cindy
 class Client():
-  def __init___(self):
+  def __init___(self, indices): #todo: fix initialization (get data, initialize model)
     num_epochs = 1
     random_seed = 0
     train_set = None
     batch_size = 128
-    self.model = None
+    self.model = None 
     # SGD inputs
     params = None
     lr = 0.1 # learning rate
@@ -45,14 +45,18 @@ class Client():
         optimizer.step()
         losses.append(epoch_loss)
 
-  def recieve_training_info(self): #receive info from server: data, training hyperparameters, etc.
-    pass
+  #TODO: fill in these
+  # def recieve_training_info(self): #receive info from server: data, training hyperparameters, etc.
+  #   pass
   
   def send_message(self): #send message to server
     #execute the random delay
     pass
+  
+  def receive_message(self): #recieve aggregated model from server
+    pass
 
-class Server:
+class Server: #todo: send indices of data to client
   def __init__(self):
     self.client_id_to_metadata_dict = {} 
     #client_id_to_metadata_dict[client_uid] = (client object, replica_group_id)
@@ -71,6 +75,7 @@ class Server:
 
   #replica_id is specified if this new client is spawned to be a replica of group replica_id. Otherwise, None
   #returns new client uid
+  #todo: fix this code, variable names
   def spawn_new_client(self, make_replica = False, replica_group_id = None, replica_client_uid = None): #TODO 
     self.latest_client_uid += 1
     self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(), replica_group_id) #TODO instantiate client 
@@ -87,6 +92,8 @@ class Server:
         
     return self.latest_client_uid
 
+  #specify this further, figure out what's gonna be in the message
+  #write code to have the weights from clients collected in organized fashion
   def aggregate(self, messages): #aggregate local training rounds (Averaging) #TODO, specify input of messages
     msg_sum = None
     for message_curr in messages:
@@ -100,13 +107,17 @@ class Server:
     for i in range(len(receivers)):
       c, addr = self.s
       self.s.sendto(message, (addr[0], addr[1])) #TODO
+  
+  def recieve_message(self):
+    pass
 
 
 # Neha
 class message:
 
   def __init__(self, content, sender, reciever, delay = False):
-    self.content = content #string
+    self.content = content #numpy array of weights
+    self.round_number = 0
     self.sender = sender #source ID?
     self.reciever = reciever #dest ID?
     self.delay = delay #if there is a delay, we can trigger it when sending message
