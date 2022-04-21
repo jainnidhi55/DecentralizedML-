@@ -108,7 +108,7 @@ class Server: #todo: send indices of data to client
       c, addr = self.s
       self.s.sendto(message, (addr[0], addr[1])) #TODO
   
-  def recieve_message(self):
+  def recieve_message(self): #waits for the next recieved message, times out after a point
     pass
 
 
@@ -122,7 +122,7 @@ class message:
     self.reciever = reciever #dest ID?
     self.delay = delay #if there is a delay, we can trigger it when sending message
 
-class run_training:
+class run_training: #TODO: make it work end to end. create a new server. blah blah blah 
 
   def forward(self, num_rounds, clients, server):
 
