@@ -8,18 +8,46 @@ Original file is located at
 """
 import socket
 
+import torch
+import torch.optim as optim
+from multiprocessing import Process
+
 # cindy
 class client:
-  # add fields
+  num_epochs = 1
+  random_seed = 0
+  train_set = None
+  batch_size = 128
+  model = None
+  # SGD inputs
+  params = None
+  lr = 0.1 # learning rate
+  momentum = 0
+  weight_decay = 0
+  dampening = 0
+  nesterov = False
+  maximize = False
 
-  def train(): #train local round
+  def train(self, model): #train local round #added model bc need inplace modification for multiprocessing - Neha
     # sgd algo
+    torch.manual_seed(self.random_seed)
+    optimizer = optim.SGD(self.params, lr = self.lr, momentum = self.momentum, weight_decay = self.weight_decay, dampening = self.dampening, nesterov = self.nesterov, maximize = self.maximize)
+    losses = []
+    for epoch in range(num_epochs):
+      epoch_loss = 0.0
+      for data, target in train_set:
+        optimizer.zero_grad()
+        output = model(data)
+        loss = F.nll_loss(output, target)
+        epoch_loss += loss.item()
+        loss.backward()
+        optimizer.step()
+        losses.append(epoch_loss)
+
+  def recieve_training_info(self): #receive info from server: data, training hyperparameters, etc.
     pass
   
-  def recieve_training_info(): #receive info from server: data, training hyperparameters, etc.
-    pass
-  
-  def send_message(): #send message to server
+  def send_message(self): #send message to server
     #execute the random delay
     pass
 
@@ -83,15 +111,35 @@ class Server: #NIDHI2
       c, addr = self.s
       self.s.sendto(message, (addr[0], addr[1])) #TODO
 
+
+# Neha
 class message:
 
-  # fields 
-  # random delay
-  #Neha
-  pass
+  def __init__(self, content, sender, reciever, delay = False):
+    self.content = content #string
+    self.sender = sender #source ID?
+    self.reciever = reciever #dest ID?
+    self.delay = delay #if there is a delay, we can trigger it when sending message
 
 class run_training:
-  #Neha
-  def forward():
-    #hi
-    pass
+
+  def forward(self, num_rounds, clients):
+
+    model = None #averaged model
+    client_models = [] #initialize with regular CNN or whatever NN dependin on our task (nn.?)
+
+    for _ in range(num_rounds): #num global rounds
+
+      # train clients in parallel
+      running_tasks = []
+      for i in range(len(clients)):
+        running_tasks.append(Process(clients[i].train(client_models[i])))
+
+      for running_task in running_tasks:
+          running_task.start()
+      for running_task in running_tasks: #do some straggler handling here
+          running_task.join()
+      
+      #average models here
+
+      return model
