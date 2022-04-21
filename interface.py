@@ -28,16 +28,16 @@ class client:
   nesterov = False
   maximize = False
 
-  def train(self, model): #train local round #added model bc need inplace modification for multiprocessing - Neha
+  def train(self): #train local round #added model bc need inplace modification for multiprocessing - Neha
     # sgd algo
     torch.manual_seed(self.random_seed)
     optimizer = optim.SGD(self.params, lr = self.lr, momentum = self.momentum, weight_decay = self.weight_decay, dampening = self.dampening, nesterov = self.nesterov, maximize = self.maximize)
     losses = []
-    for epoch in range(num_epochs):
+    for epoch in range(self.num_epochs):
       epoch_loss = 0.0
-      for data, target in train_set:
+      for data, target in self.train_set:
         optimizer.zero_grad()
-        output = model(data)
+        output = self.model(data)
         loss = F.nll_loss(output, target) #TODO, change the loss function
         epoch_loss += loss.item()
         loss.backward()
