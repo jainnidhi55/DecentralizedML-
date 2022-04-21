@@ -113,17 +113,19 @@ class message:
 
 class run_training:
 
-  def forward(self, num_rounds, clients):
+  def forward(self, num_rounds, clients, server):
 
     model = None #averaged model
     client_models = [] #initialize with regular CNN or whatever NN dependin on our task (nn.?)
+    #for loop , client_models.append(client.model)
+    # in client we initlaize the model 
 
     for _ in range(num_rounds): #num global rounds
 
       # train clients in parallel
       running_tasks = []
       for i in range(len(clients)):
-        running_tasks.append(Process(clients[i].train(client_models[i])))
+        running_tasks.append(Process(clients[i].train()))
 
       for running_task in running_tasks:
           running_task.start()
@@ -131,5 +133,6 @@ class run_training:
           running_task.join()
       
       #average models here
+      server.aggregate()
 
       return model
