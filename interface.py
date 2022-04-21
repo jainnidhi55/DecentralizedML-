@@ -14,6 +14,8 @@ from multiprocessing import Process
 
 # cindy
 class client:
+  # client id
+  # group id
   num_epochs = 1
   random_seed = 0
   train_set = None
