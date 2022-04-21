@@ -13,20 +13,21 @@ import torch.optim as optim
 from multiprocessing import Process
 
 # cindy
-class client:
-  num_epochs = 1
-  random_seed = 0
-  train_set = None
-  batch_size = 128
-  model = None
-  # SGD inputs
-  params = None
-  lr = 0.1 # learning rate
-  momentum = 0
-  weight_decay = 0
-  dampening = 0
-  nesterov = False
-  maximize = False
+class Client():
+  def __init___(self):
+    num_epochs = 1
+    random_seed = 0
+    train_set = None
+    batch_size = 128
+    self.model = None
+    # SGD inputs
+    params = None
+    lr = 0.1 # learning rate
+    momentum = 0
+    weight_decay = 0
+    dampening = 0
+    nesterov = False
+    maximize = False
 
   def train(self): #train local round #added model bc need inplace modification for multiprocessing - Neha
     # sgd algo
@@ -54,7 +55,7 @@ class client:
 class Server:
   def __init__(self):
     self.client_id_to_metadata_dict = {} 
-    #client_id_to_metadata_dict[client_uid] = (client object, replica_group_index)
+    #client_id_to_metadata_dict[client_uid] = (client object, replica_group_id)
 
     self.replica_group_id_to_client_uids = {}
     #replica_id_to_client_copy[replica_group_id] = (primary client uid, [client uids corresponding to this replica_group])
@@ -70,30 +71,19 @@ class Server:
 
   #replica_id is specified if this new client is spawned to be a replica of group replica_id. Otherwise, None
   #returns new client uid
-  def spawn_new_client(self, make_replica = False, replica_group_id = None, replica_client_uid = None):
+  def spawn_new_client(self, make_replica = False, replica_group_id = None, replica_client_uid = None): #TODO 
     self.latest_client_uid += 1
     self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(), replica_group_id) #TODO instantiate client 
 
     if make_replica:
-      if self.client_id_to_metadata_dict[replica_client_uid][1] is None: #this will be the first replica of this client type
-        #assign original client the new replica group 
-        self.latest_replica_group_id += 1
-        self.client_id_to_metadata_dict[replica_client_uid][1] = self.latest_replica_group_id
+      #assign new client the exact copy of original client 
+      self.client_id_to_metadata_dict[self.latest_client_uid] = (self.client_id_to_metadata_dict[replica_client_uid][0].copy(), replica_group_id) #TODO client .copy()
 
-        #assign new client the exact copy of original client 
-        self.client_id_to_metadata_dict[self.latest_client_uid] = (self.client_id_to_metadata_dict[replica_client_uid][0].copy(), self.latest_replica_group_id) #TODO client .copy()
-
-        #update replica knowledge
-        self.replica_group_id_to_client_uids[self.latest_replica_group_id] = (replica_client_uid, [self.latest_client_uid])
-      else: #replicas already exist
-
-        #assign new client the exact copy of original client 
-        self.client_id_to_metadata_dict[self.latest_client_uid] = (self.client_id_to_metadata_dict[replica_client_uid][0].copy(), self.latest_replica_group_id) #TODO client .copy()
-
-        #add new client to replica data
-        self.replica_group_id_to_client_uids[replica_group_id][1].append(self.latest_client_uid)
+      #add new client to replica data
+      self.replica_group_id_to_client_uids[replica_group_id][1].append(self.latest_client_uid)
     else:
-      self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(), None) #TODO 
+      self.latest_replica_group_id += 1
+      self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(), self.latest_replica_group_id) #TODO 
         
     return self.latest_client_uid
 
