@@ -17,7 +17,8 @@ from multiprocessing import Process
 
 class CNN(nn.Module): #random CNN found from online
     def __init__(self):
-        super().__init__()
+        # Cindy: not sure if Net is missing, plz check
+        super(Net, self).__init__()
         self.conv1 = nn.Conv2d(3, 6, 5)
         self.pool = nn.MaxPool2d(2, 2)
         self.conv2 = nn.Conv2d(6, 16, 5)
@@ -36,36 +37,38 @@ class CNN(nn.Module): #random CNN found from online
 
 # cindy
 class Client():
-  def __init___(self, indices): #todo: fix initialization (get data, initialize model). port #?
-
-    #DATA
-    #data = get data and set indices
-    train_set = None
-    test_set = None
-
-    #MODEL
+  def __init___(self, bsz, epochs, indices, host, port): #todo: fix initialization (get data, initialize model). port #?
+    # MODEL
     self.model = CNN() 
 
-    #TRAIN HYPERPARAMETERS
-    num_epochs = 1
-    # random_seed = 0
-    batch_size = 128
+    # TRAINING HYPERPARAMETERS
+    self.batch_size = bsz
+    self.num_epochs = epochs
     # SGD inputs
-    params = None
-    lr = 0.1 # learning rate
-    momentum = 0
-    weight_decay = 0
-    dampening = 0
-    nesterov = False
-    maximize = False
+    self.random_seed = 0
+    self.params = model.parameters() 
+    self.lr = 0.1
+    self.momentum = 0
+    self.weight_decay = 0
+    self.dampening = 0
+    self.nesterov = False
+    self.maximize = False
+
+    # DATA
+    # dataset
+    self.partititon = dataset[indices[0]:indices[1]]
+    self.train_set = torch.utils.data.DataLoader(partition, batch_size=bsz, shuffle=True)
+    self.test_set = None
 
     #CONNECT TO SERVER
-    host = None #'127.0.0.1'
-    port = None #2004
-    self.s = socket.socket() #todo: close after done
-    self.s.connect((host, port))
+    self.host = host
+    self.port = port
+    self.client_socket = socket.socket() # todo: close after done
+    self.client_socket.connect((host, port))
 
-  def train(self): #train local round #added model bc need inplace modification for multiprocessing - Neha
+  # train local round 
+  # added model bc need inplace modification for multiprocessing - Neha
+  def train(self):
     # sgd algo
     torch.manual_seed(self.random_seed)
     optimizer = optim.SGD(self.params, lr = self.lr, momentum = self.momentum, weight_decay = self.weight_decay, dampening = self.dampening, nesterov = self.nesterov, maximize = self.maximize)
@@ -75,23 +78,25 @@ class Client():
       for data, target in self.train_set:
         optimizer.zero_grad()
         output = self.model(data)
-        loss = F.nll_loss(output, target) #TODO, change the loss function
+        loss = nn.MSELoss(output, target)
         epoch_loss += loss.item()
         loss.backward()
         optimizer.step()
         losses.append(epoch_loss)
 
-  #TODO: fill in these
-  # def recieve_training_info(self): #receive info from server: data, training hyperparameters, etc.
-  #   pass
+  #receive info from server: data, training hyperparameters, etc.
+  def recieve_training_info(self):
+    data = self.client_socket.recv(1024).decode()
   
-  def send_message(self): #send message to server
+  #send message to server
+  def send_message(self, msg):
     #execute the random delay
-    pass
-  
-  def receive_message(self): #recieve aggregated model from server
-    # pass
-    res = self.s.recv(1024) #bufsize
+    self.client_socket.send(msg)
+
+  #recieve aggregated model from server
+  def receive_message(self):
+    msg = self.client_socket.recv(1024) #1024 = bufsize
+    # TODO: update gradients?
 
 class Server: #todo: send indices of data to client
   def __init__(self):
