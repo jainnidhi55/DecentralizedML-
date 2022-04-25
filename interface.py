@@ -13,6 +13,7 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 from multiprocessing import Process
+import multiprocessing
 
 
 class CNN(nn.Module): #random CNN found from online
@@ -37,7 +38,7 @@ class CNN(nn.Module): #random CNN found from online
 
 # cindy
 class Client():
-  def __init___(self, uid, replica_group_id, queue, bsz=32, epochs=10, indices=[0, 50]): #todo: fix initialization (get data, initialize model). port #?
+  def __init__(self, uid, replica_group_id, queue, bsz=32, epochs=10, indices=[0, 50]): #todo: fix initialization (get data, initialize model). port #?
     
     self.uid = uid
     self.replica_group_id = replica_group_id
@@ -97,7 +98,7 @@ class Client():
 
   #recieve aggregated model from server
   def receive_message(self):
-    print(self.queue.get().content)
+    print("client ", self.uid, "recieved ", self.queue.get().content, " from server")
     # TODO: update gradients?
 
 class Server: #todo: send indices of data to client
@@ -123,9 +124,11 @@ class Server: #todo: send indices of data to client
       self.replica_group_id_to_client_uids[replica_group_id][1].append(self.latest_client_uid)
     else:
       self.latest_replica_group_id += 1
-      self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(self.latest_client_uid,self.latest_replica_group_id, indices=data_ind_if_not_replica), self.latest_replica_group_id) #TODO 
+      new_client_q = multiprocessing.Queue()
+      new_client = Client(self.latest_client_uid,self.latest_replica_group_id, new_client_q, indices=data_ind_if_not_replica)
+      self.client_id_to_metadata_dict[self.latest_client_uid] = (new_client, self.latest_replica_group_id) #TODO 
 
-    return self.client_id_to_metadata_dict[self.latest_client_uid]
+    return self.client_id_to_metadata_dict[self.latest_client_uid][0]
 
   #write code to have the weights from clients collected in organized fashion
   def aggregate(self, messages, weights): #aggregate local training rounds (Averaging) 
@@ -143,9 +146,9 @@ class Server: #todo: send indices of data to client
     for (client, _) in self.client_id_to_metadata_dict.values():
       client.queue.put(message)
   
-  def recieve_message(self): #waits for the next recieved message, times out after a point
+  def receive_message(self): #waits for the next recieved message, times out after a point
     for (client, _) in self.client_id_to_metadata_dict.values():
-      print(client.queue.get().content)
+      print("server received: ", client.queue.get().content, " from ", client.uid)
   
 
 
@@ -153,11 +156,11 @@ class Server: #todo: send indices of data to client
 # Neha
 class Message:
 
-  def __init__(self, content, sender=None, reciever=None, delay = False):
+  def __init__(self, content, sender=None, receiver=None, delay = False):
     self.content = content #numpy array of weights
     self.round_number = 0
     self.sender = sender #source ID
-    self.reciever = reciever #dest ID
+    self.receiver = receiver #dest ID
     self.delay = delay #if there is a delay, we can trigger it when sending message
 
 class RunTraining: #TODO: make it work end to end. create a new server. blah blah blah 
@@ -166,21 +169,24 @@ class RunTraining: #TODO: make it work end to end. create a new server. blah bla
     self.s = Server()
     self.clients = []
     self.client_to_process_dict= {}
+    self.num_rounds = 1
 
     for _ in range(num_clients):
       curr_client = self.s.spawn_new_client()
       self.clients.append(curr_client)
 
 
-  def forward(self, num_rounds):
+  def forward(self):
+    print("called forward")
 
     model = None #averaged model
 
-    for _ in range(num_rounds): #num global rounds
+    for _ in range(self.num_rounds): #num global rounds
 
       # SERVER TO CLIENT ROUND 1 
+      print("SERVER TO CLIENT ROUND 1")
       running_tasks = []
-      running_tasks.append(Process(target=self.s.send_message, args=Message("server to client round 1")))
+      running_tasks.append(Process(target=self.s.send_message, args=(Message("server to client round 1"), )))
 
       #run tasks and join
       for running_task in running_tasks:
@@ -189,9 +195,10 @@ class RunTraining: #TODO: make it work end to end. create a new server. blah bla
           running_task.join()
       
       #did client recieve?
+      print("SERVER TO CLIENT ROUND 1: checking recieve")
       running_tasks = []
       for client in self.clients:
-        running_tasks.append(Process(target=client.recieve_message))
+        running_tasks.append(Process(target=client.receive_message))
       
       #run tasks and join
       for running_task in running_tasks:
@@ -201,9 +208,10 @@ class RunTraining: #TODO: make it work end to end. create a new server. blah bla
 
     
       # CLIENT TO SERVER ROUND 1
+      print("CLIENT TO SERVER ROUND 1")
       running_tasks = []
       for client in self.clients:
-        running_task.append(Process(target=client.send_message(), args=(Message("hi from "+str(client.uid)),)))
+        running_tasks.append(Process(target=client.send_message, args=(Message("hi from "+str(client.uid)),)))
       
       #run tasks and join
       for running_task in running_tasks:
@@ -212,8 +220,9 @@ class RunTraining: #TODO: make it work end to end. create a new server. blah bla
           running_task.join()
 
       #did server receive?
-      running_task = []
-      running_task.append(Process(target=self.s.recieve_message()))
+      print("CLIENT TO SERVER ROUND 1: check receive")
+      running_tasks = []
+      running_tasks.append(Process(target=self.s.receive_message))
 
       #run tasks and join
       for running_task in running_tasks:
@@ -228,8 +237,11 @@ class RunTraining: #TODO: make it work end to end. create a new server. blah bla
 
       # return model
 
-def __main__():
-  runner = RunTraining(1)
+def main():
+  runner = RunTraining(5)
   runner.forward()
+
+if __name__ == '__main__':
+    main()
 
 
