@@ -37,7 +37,11 @@ class CNN(nn.Module): #random CNN found from online
 
 # cindy
 class Client():
-  def __init___(self, bsz, epochs, indices, host, port): #todo: fix initialization (get data, initialize model). port #?
+  def __init___(self, uid, replica_group_id, bsz=32, epochs=10, indices=[0, 50]): #todo: fix initialization (get data, initialize model). port #?
+    
+    self.uid = uid
+    self.replica_group_id = replica_group_id
+    
     # MODEL
     self.model = CNN() 
 
@@ -56,15 +60,12 @@ class Client():
 
     # DATA
     # dataset
-    self.partititon = dataset[indices[0]:indices[1]]
-    self.train_set = torch.utils.data.DataLoader(partition, batch_size=bsz, shuffle=True)
-    self.test_set = None
-
-    #CONNECT TO SERVER
-    self.host = host
-    self.port = port
-    self.client_socket = socket.socket() # todo: close after done
-    self.client_socket.connect((host, port))
+    # self.partititon = dataset[indices[0]:indices[1]]
+    # self.train_set = torch.utils.data.DataLoader(partition, batch_size=bsz, shuffle=True)
+    # self.test_set = None
+  
+  def copy():
+    return None
 
   # train local round 
   # added model bc need inplace modification for multiprocessing - Neha
@@ -109,20 +110,10 @@ class Server: #todo: send indices of data to client
     self.latest_client_uid = 1025 #non priviliged ports are > 1023
     self.latest_replica_group_id = 0
 
-    self.s = socket.socket()  #todo: s.close() when done
-    host = "127.0.0.1"
-    port = 1024
-    self.s.bind((host, port))
-    self.s.listen()
-
-    listening_tasks = []
-
   #replica_id is specified if this new client is spawned to be a replica of group replica_id. Otherwise, None
   #returns new client uid
-  def spawn_new_client(self, make_replica = False, replica_group_id = None, replica_client_uid = None, data_if_not_replica = None): #TODO 
+  def spawn_new_client(self, make_replica = False, replica_group_id = None, replica_client_uid = None, data_ind_if_not_replica = None): #TODO 
     self.latest_client_uid += 1
-    self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(), replica_group_id) #TODO instantiate client 
-
     if make_replica:
       #assign new client the exact copy of original client 
       self.client_id_to_metadata_dict[self.latest_client_uid] = (self.client_id_to_metadata_dict[replica_client_uid][0].copy(), replica_group_id) #TODO client .copy()
@@ -131,15 +122,9 @@ class Server: #todo: send indices of data to client
       self.replica_group_id_to_client_uids[replica_group_id][1].append(self.latest_client_uid)
     else:
       self.latest_replica_group_id += 1
-      self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(data_if_not_replica), self.latest_replica_group_id) #TODO 
-        
-    
-    conn, _ = self.s.accept() #?? idk
-    task = Process(target=self.recieve_message, args=(conn, ))
-    self.listening_tasks.append(task) # todo: to join later
-    task.start()
+      self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(self.latest_client_uid,self.latest_replica_group_id, indices=data_ind_if_not_replica), self.latest_replica_group_id) #TODO 
 
-    return self.latest_client_uid
+    return self.client_id_to_metadata_dict[self.latest_client_uid]
 
   #write code to have the weights from clients collected in organized fashion
   def aggregate(self, messages, weights): #aggregate local training rounds (Averaging) 
@@ -167,26 +152,25 @@ class Server: #todo: send indices of data to client
 
 
 # Neha
-class message:
+class Message:
 
-  def __init__(self, content, sender, reciever, delay = False):
+  def __init__(self, content, sender=None, reciever=None, delay = False):
     self.content = content #numpy array of weights
     self.round_number = 0
     self.sender = sender #source ID
     self.reciever = reciever #dest ID
     self.delay = delay #if there is a delay, we can trigger it when sending message
 
-class run_training: #TODO: make it work end to end. create a new server. blah blah blah 
+class RunTraining: #TODO: make it work end to end. create a new server. blah blah blah 
 
   def __init__(self, num_clients):
     self.s = Server()
     self.clients = []
+    self.client_to_process_dict= {}
 
-    host = "127.0.0.1"
-    port = 2000
     for _ in range(num_clients):
-      self.clients.append(Client(None, None, None, host, port))
-      port +=1
+      curr_client = self.s.spawn_new_client()
+      self.clients.append(curr_client)
 
 
   def forward(self, num_rounds):
@@ -195,10 +179,13 @@ class run_training: #TODO: make it work end to end. create a new server. blah bl
 
     for _ in range(num_rounds): #num global rounds
 
-      # train clients in parallel
+      # SERVER TO CLIENT ROUND 1 
       running_tasks = []
       for i in range(len(self.clients)):
-        running_tasks.append(Process(target=self.clients[i].train()))
+        running_tasks.append(Process(target=self.s.send_message(), args=Message("server to client round 1")))
+
+      #CLIENT TO SERVER
+
 
       for running_task in running_tasks:
           running_task.start()
