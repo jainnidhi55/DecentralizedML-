@@ -46,7 +46,7 @@ class Client():
     self.num_epochs = epochs
     # SGD inputs
     self.random_seed = 0
-    self.params = model.parameters() 
+    self.params = self.model.parameters() 
     self.lr = 0.1
     self.momentum = 0
     self.weight_decay = 0
@@ -135,7 +135,7 @@ class Server: #todo: send indices of data to client
         
     
     conn, _ = self.s.accept() #?? idk
-    task = Process(self.recieve_message(conn))
+    task = Process(target=self.recieve_message, args=(conn, ))
     self.listening_tasks.append(task) # todo: to join later
     task.start()
 
