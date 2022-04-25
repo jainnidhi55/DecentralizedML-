@@ -178,7 +178,18 @@ class message:
 
 class run_training: #TODO: make it work end to end. create a new server. blah blah blah 
 
-  def forward(self, num_rounds, clients, server):
+  def __init__(self, num_clients):
+    self.s = Server()
+    self.clients = []
+
+    host = "127.0.0.1"
+    port = 2000
+    for _ in range(num_clients):
+      self.clients.append(Client(None, None, None, host, port))
+      port +=1
+
+
+  def forward(self, num_rounds):
 
     model = None #averaged model
 
@@ -186,8 +197,8 @@ class run_training: #TODO: make it work end to end. create a new server. blah bl
 
       # train clients in parallel
       running_tasks = []
-      for i in range(len(clients)):
-        running_tasks.append(Process(clients[i].train()))
+      for i in range(len(self.clients)):
+        running_tasks.append(Process(target=self.clients[i].train()))
 
       for running_task in running_tasks:
           running_task.start()
@@ -195,6 +206,6 @@ class run_training: #TODO: make it work end to end. create a new server. blah bl
           running_task.join()
       
       #average models here
-      server.aggregate()
+      self.server.aggregate()
 
       return model
