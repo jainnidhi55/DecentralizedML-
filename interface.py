@@ -96,10 +96,14 @@ class Server:
         msg_sum += message_curr
     return msg_sum / len(messages)
 
+  #server sends 1
   def send_message(self, message, receivers):
     for i in range(len(receivers)):
       c, addr = self.s
       self.s.sendto(message, (addr[0], addr[1])) #TODO
+  
+  def recieve_message():
+    pass
 
 
 # Neha
