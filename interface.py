@@ -119,7 +119,6 @@ class Server: #todo: send indices of data to client
 
   #replica_id is specified if this new client is spawned to be a replica of group replica_id. Otherwise, None
   #returns new client uid
-  #todo: fix this code, variable names
   def spawn_new_client(self, make_replica = False, replica_group_id = None, replica_client_uid = None): #TODO 
     self.latest_client_uid += 1
     self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(), replica_group_id) #TODO instantiate client 
@@ -143,13 +142,14 @@ class Server: #todo: send indices of data to client
     return self.latest_client_uid
 
   #write code to have the weights from clients collected in organized fashion
-  def aggregate(self, messages): #aggregate local training rounds (Averaging) 
+  def aggregate(self, messages, weights): #aggregate local training rounds (Averaging) 
     msg_sum = None
-    for message_curr in messages:
+    for message_curr_i in range(len(messages)):
+      message_curr = messages[message_curr_i]
       if msg_sum is None:
         msg_sum = message_curr.content
       else:
-        msg_sum += message_curr.content
+        msg_sum += weights[message_curr_i] * message_curr.content
     return msg_sum / len(messages)
 
   #server sends 1
@@ -158,16 +158,11 @@ class Server: #todo: send indices of data to client
       c, addr = self.s
       self.s.sendto(message, (addr[0], addr[1])) #TODO
   
-<<<<<<< HEAD
-  def recieve_message():
-    pass
-=======
   def recieve_message(self, conn): #waits for the next recieved message, times out after a point
     while True:
         data = conn.recv(2048)
     # pass
 
->>>>>>> b6edaa38970babd4a19fa9828f0edbd485b05f52
 
 
 # Neha
