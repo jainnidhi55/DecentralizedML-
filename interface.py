@@ -10,26 +10,65 @@ import socket
 
 import torch
 import torch.optim as optim
+import torch.nn as nn
+import torch.nn.functional as F
 from multiprocessing import Process
+
+
+class CNN(nn.Module): #random CNN found from online
+    def __init__(self):
+        # Cindy: not sure if Net is missing, plz check
+        super(Net, self).__init__()
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, 10)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = torch.flatten(x, 1) # flatten all dimensions except batch
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
 
 # cindy
 class Client():
-  def __init___(self):
-    num_epochs = 1
-    random_seed = 0
-    train_set = None
-    batch_size = 128
-    self.model = None
-    # SGD inputs
-    params = None
-    lr = 0.1 # learning rate
-    momentum = 0
-    weight_decay = 0
-    dampening = 0
-    nesterov = False
-    maximize = False
+  def __init___(self, bsz, epochs, indices, host, port): #todo: fix initialization (get data, initialize model). port #?
+    # MODEL
+    self.model = CNN() 
 
-  def train(self): #train local round #added model bc need inplace modification for multiprocessing - Neha
+    # TRAINING HYPERPARAMETERS
+    self.batch_size = bsz
+    self.num_epochs = epochs
+    # SGD inputs
+    self.random_seed = 0
+    self.params = model.parameters() 
+    self.lr = 0.1
+    self.momentum = 0
+    self.weight_decay = 0
+    self.dampening = 0
+    self.nesterov = False
+    self.maximize = False
+
+    # DATA
+    # dataset
+    self.partititon = dataset[indices[0]:indices[1]]
+    self.train_set = torch.utils.data.DataLoader(partition, batch_size=bsz, shuffle=True)
+    self.test_set = None
+
+    #CONNECT TO SERVER
+    self.host = host
+    self.port = port
+    self.client_socket = socket.socket() # todo: close after done
+    self.client_socket.connect((host, port))
+
+  # train local round 
+  # added model bc need inplace modification for multiprocessing - Neha
+  def train(self):
     # sgd algo
     torch.manual_seed(self.random_seed)
     optimizer = optim.SGD(self.params, lr = self.lr, momentum = self.momentum, weight_decay = self.weight_decay, dampening = self.dampening, nesterov = self.nesterov, maximize = self.maximize)
@@ -39,20 +78,27 @@ class Client():
       for data, target in self.train_set:
         optimizer.zero_grad()
         output = self.model(data)
-        loss = F.nll_loss(output, target) #TODO, change the loss function
+        loss = nn.MSELoss(output, target)
         epoch_loss += loss.item()
         loss.backward()
         optimizer.step()
         losses.append(epoch_loss)
 
-  def recieve_training_info(self): #receive info from server: data, training hyperparameters, etc.
-    pass
+  #receive info from server: data, training hyperparameters, etc.
+  def recieve_training_info(self):
+    data = self.client_socket.recv(1024).decode()
   
-  def send_message(self): #send message to server
+  #send message to server
+  def send_message(self, msg):
     #execute the random delay
-    pass
+    self.client_socket.send(msg)
 
-class Server:
+  #recieve aggregated model from server
+  def receive_message(self):
+    msg = self.client_socket.recv(1024) #1024 = bufsize
+    # TODO: update gradients?
+
+class Server: #todo: send indices of data to client
   def __init__(self):
     self.client_id_to_metadata_dict = {} 
     #client_id_to_metadata_dict[client_uid] = (client object, replica_group_id)
@@ -63,14 +109,17 @@ class Server:
     self.latest_client_uid = 1025 #non priviliged ports are > 1023
     self.latest_replica_group_id = 0
 
-    self.s = socket.socket() 
+    self.s = socket.socket()  #todo: s.close() when done
     host = "127.0.0.1"
     port = 1024
     self.s.bind((host, port))
     self.s.listen()
 
+    listening_tasks = []
+
   #replica_id is specified if this new client is spawned to be a replica of group replica_id. Otherwise, None
   #returns new client uid
+  #todo: fix this code, variable names
   def spawn_new_client(self, make_replica = False, replica_group_id = None, replica_client_uid = None): #TODO 
     self.latest_client_uid += 1
     self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(), replica_group_id) #TODO instantiate client 
@@ -85,15 +134,22 @@ class Server:
       self.latest_replica_group_id += 1
       self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(), self.latest_replica_group_id) #TODO 
         
+    
+    conn, _ = self.s.accept() #?? idk
+    task = Process(self.recieve_message(conn))
+    self.listening_tasks.append(task) # todo: to join later
+    task.start()
+
     return self.latest_client_uid
 
-  def aggregate(self, messages): #aggregate local training rounds (Averaging) #TODO, specify input of messages
+  #write code to have the weights from clients collected in organized fashion
+  def aggregate(self, messages): #aggregate local training rounds (Averaging) 
     msg_sum = None
     for message_curr in messages:
       if msg_sum is None:
-        msg_sum = message_curr
+        msg_sum = message_curr.content
       else:
-        msg_sum += message_curr
+        msg_sum += message_curr.content
     return msg_sum / len(messages)
 
   #server sends 1
@@ -102,32 +158,40 @@ class Server:
       c, addr = self.s
       self.s.sendto(message, (addr[0], addr[1])) #TODO
   
+<<<<<<< HEAD
   def recieve_message():
     pass
+=======
+  def recieve_message(self, conn): #waits for the next recieved message, times out after a point
+    while True:
+        data = conn.recv(2048)
+    # pass
+
+>>>>>>> b6edaa38970babd4a19fa9828f0edbd485b05f52
 
 
 # Neha
 class message:
 
   def __init__(self, content, sender, reciever, delay = False):
-    self.content = content #string
-    self.sender = sender #source ID?
-    self.reciever = reciever #dest ID?
+    self.content = content #numpy array of weights
+    self.round_number = 0
+    self.sender = sender #source ID
+    self.reciever = reciever #dest ID
     self.delay = delay #if there is a delay, we can trigger it when sending message
 
-class run_training:
+class run_training: #TODO: make it work end to end. create a new server. blah blah blah 
 
-  def forward(self, num_rounds, clients):
+  def forward(self, num_rounds, clients, server):
 
     model = None #averaged model
-    client_models = [] #initialize with regular CNN or whatever NN dependin on our task (nn.?)
 
     for _ in range(num_rounds): #num global rounds
 
       # train clients in parallel
       running_tasks = []
       for i in range(len(clients)):
-        running_tasks.append(Process(clients[i].train(client_models[i])))
+        running_tasks.append(Process(clients[i].train()))
 
       for running_task in running_tasks:
           running_task.start()
@@ -135,5 +199,6 @@ class run_training:
           running_task.join()
       
       #average models here
+      server.aggregate()
 
       return model
