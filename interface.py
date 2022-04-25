@@ -119,7 +119,7 @@ class Server: #todo: send indices of data to client
 
   #replica_id is specified if this new client is spawned to be a replica of group replica_id. Otherwise, None
   #returns new client uid
-  def spawn_new_client(self, make_replica = False, replica_group_id = None, replica_client_uid = None): #TODO 
+  def spawn_new_client(self, make_replica = False, replica_group_id = None, replica_client_uid = None, data_if_not_replica = None): #TODO 
     self.latest_client_uid += 1
     self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(), replica_group_id) #TODO instantiate client 
 
@@ -131,7 +131,7 @@ class Server: #todo: send indices of data to client
       self.replica_group_id_to_client_uids[replica_group_id][1].append(self.latest_client_uid)
     else:
       self.latest_replica_group_id += 1
-      self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(), self.latest_replica_group_id) #TODO 
+      self.client_id_to_metadata_dict[self.latest_client_uid] = (Client(data_if_not_replica), self.latest_replica_group_id) #TODO 
         
     
     conn, _ = self.s.accept() #?? idk
@@ -162,6 +162,7 @@ class Server: #todo: send indices of data to client
     while True:
         data = conn.recv(2048)
     # pass
+  
 
 
 
