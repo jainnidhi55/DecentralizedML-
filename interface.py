@@ -12,9 +12,17 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
+from mnist import MNIST
 from multiprocessing import Process
 import multiprocessing
+import numpy as np
+import math
 
+mndata = MNIST('data/')
+IMAGES_TRAIN, LABELS_TRAIN = mndata.load_training()
+IMAGES_TEST, LABELS_TEST = mndata.load_testing()
+IMAGES_TRAIN = np.asarray(IMAGES_TRAIN)
+IMAGES_TEST = np.asarray(IMAGES_TEST)
 
 class CNN(nn.Module): #random CNN found from online
     def __init__(self):
@@ -61,9 +69,9 @@ class Client():
     self.maximize = False
 
     # DATA
-    # dataset
-    # self.partititon = dataset[indices[0]:indices[1]]
-    # self.train_set = torch.utils.data.DataLoader(partition, batch_size=bsz, shuffle=True)
+    self.train_partititon = IMAGES_TRAIN[indices[0]:indices[1]]
+    self.label_partition = LABELS_TRAIN[indices[0]:indices[1]]
+    # self.train_set = torch.utils.data.DataLoader(self.train_partititon, batch_size=bsz, shuffle=True)
     # self.test_set = None
   
   def copy():
@@ -71,14 +79,17 @@ class Client():
 
   # train local round 
   # added model bc need inplace modification for multiprocessing - Neha
-  def train(self):
+  def train(self, round_num):
     # sgd algo
     torch.manual_seed(self.random_seed)
     optimizer = optim.SGD(self.params, lr = self.lr, momentum = self.momentum, weight_decay = self.weight_decay, dampening = self.dampening, nesterov = self.nesterov, maximize = self.maximize)
     losses = []
-    for epoch in range(self.num_epochs):
+    for _ in range(self.num_epochs):
       epoch_loss = 0.0
-      for data, target in self.train_set:
+      for i in range(len(int(math.ceil(self.train_partititon)/self.bsz))):
+        data = self.train_partititon[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]
+        target = self.label_partition[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]
+        
         optimizer.zero_grad()
         output = self.model(data)
         loss = nn.MSELoss(output, target)
@@ -86,10 +97,9 @@ class Client():
         loss.backward()
         optimizer.step()
         losses.append(epoch_loss)
-
-  #receive info from server: data, training hyperparameters, etc.
-  def recieve_training_info(self):
-    data = self.client_socket.recv(1024).decode()
+    
+    print("client uid finished training: ", self.uid, np.mean(np.asarray(losses)))
+    self.send_message(Message(content=self.model.parameters, round_num=round_num))
   
   #send message to server
   def send_message(self, msg):
@@ -98,8 +108,10 @@ class Client():
 
   #recieve aggregated model from server
   def receive_message(self):
-    print("client ", self.uid, "recieved ", self.queue.get().content, " from server")
-    # TODO: update gradients?
+    current_parameters = self.model.parameters()
+    updated_parameters = self.queue.get().content
+    for param_i in range(len(updated_parameters)):
+      current_parameters[param_i] = updated_parameters[param_i]
 
 class Server: #todo: send indices of data to client
   def __init__(self):
@@ -126,7 +138,7 @@ class Server: #todo: send indices of data to client
       self.latest_replica_group_id += 1
       new_client_q = multiprocessing.Queue()
       new_client = Client(self.latest_client_uid,self.latest_replica_group_id, new_client_q, indices=data_ind_if_not_replica)
-      self.client_id_to_metadata_dict[self.latest_client_uid] = (new_client, self.latest_replica_group_id) #TODO 
+      self.client_id_to_metadata_dict[self.latest_client_uid] = (new_client, self.latest_replica_group_id) 
 
     return self.client_id_to_metadata_dict[self.latest_client_uid][0]
 
@@ -140,16 +152,15 @@ class Server: #todo: send indices of data to client
       else:
         msg_sum += weights[message_curr_i] * message_curr.content
     return msg_sum / len(messages)
-  
 
   #server sends 1
-  def send_message(self, message):
-    for (client, _) in self.client_id_to_metadata_dict.values():
-      client.queue.put(message)
+  def send_message(self, client, message):
+    # for (client, _) in self.client_id_to_metadata_dict.values():
+    client.queue.put(message)
   
-  def receive_message(self): #waits for the next recieved message, times out after a point
-    for (client, _) in self.client_id_to_metadata_dict.values():
-      print("server received: ", client.queue.get().content, " from ", client.uid)
+  def receive_message(self, client): #waits for the next recieved message, times out after a point
+    msg = client.queue.get().content
+    return msg
   
 
 
@@ -157,12 +168,9 @@ class Server: #todo: send indices of data to client
 # Neha
 class Message:
 
-  def __init__(self, content, sender=None, receiver=None, delay = False):
+  def __init__(self, content, sender=None, receiver=None):
     self.content = content #numpy array of weights
     self.round_number = 0
-    self.sender = sender #source ID
-    self.receiver = receiver #dest ID
-    self.delay = delay #if there is a delay, we can trigger it when sending message
 
 class RunTraining: #TODO: make it work end to end. create a new server. blah blah blah 
 
@@ -172,71 +180,59 @@ class RunTraining: #TODO: make it work end to end. create a new server. blah bla
     self.client_to_process_dict= {}
     self.num_rounds = 1
 
-    for _ in range(num_clients):
-      curr_client = self.s.spawn_new_client()
+    NUM_TRAINING_POINTS = 60000
+    num_training_per_client = NUM_TRAINING_POINTS / num_clients
+
+    for i in range(num_clients):
+      curr_client_idxs = [i * num_training_per_client, (i + 1) * num_training_per_client]
+      curr_client = self.s.spawn_new_client(data_ind_if_not_replica=curr_client_idxs)
       self.clients.append(curr_client)
 
+  def run_tasks(running_tasks):
+    for running_task in running_tasks:
+          running_task.start()
+    for running_task in running_tasks: #do some straggler handling here
+        running_task.join()
 
   def forward(self):
     print("called forward")
 
     model = None #averaged model
 
-    for _ in range(self.num_rounds): #num global rounds
+    for round_num in range(self.num_rounds): #num global rounds
 
-      # SERVER TO CLIENT ROUND 1 
-      print("SERVER TO CLIENT ROUND 1")
-      running_tasks = []
-      running_tasks.append(Process(target=self.s.send_message, args=(Message("server to client round 1"), )))
-
-      #run tasks and join
-      for running_task in running_tasks:
-          running_task.start()
-      for running_task in running_tasks: #do some straggler handling here
-          running_task.join()
-      
-      #did client recieve?
-      print("SERVER TO CLIENT ROUND 1: checking recieve")
+      #train a round of clients in parallel
+      print("train a round of clients in parallel")
       running_tasks = []
       for client in self.clients:
-        running_tasks.append(Process(target=client.receive_message))
-      
-      #run tasks and join
-      for running_task in running_tasks:
-          running_task.start()
-      for running_task in running_tasks: #do some straggler handling here
-          running_task.join()
+        running_tasks.append(Process(target=client.train(round_num)))
+      self.run_tasks(running_tasks)
 
-    
-      # CLIENT TO SERVER ROUND 1
-      print("CLIENT TO SERVER ROUND 1")
+      #server receives trained models from each client
+      print("server receives trained models from each client")
+      messages = []
+      for client in self.clients:
+        messages.append(self.s.receive_message(client))
+
+      #aggregate models
+      print("aggregate models")
+      model = self.s.aggregate(messages, [1 for msg in messages])
+
+      #server sends new model to all clients in parallel
+      print("server sends new model to all clients in parallel")
       running_tasks = []
       for client in self.clients:
-        running_tasks.append(Process(target=client.send_message, args=(Message("hi from "+str(client.uid)),)))
-      
-      #run tasks and join
-      for running_task in running_tasks:
-          running_task.start()
-      for running_task in running_tasks: #do some straggler handling here
-          running_task.join()
+        running_tasks.append(Process(target=self.s.send_message(client, Message(content=model.parameters, round_num=round_num))))
+      self.run_tasks(running_tasks)
 
-      #did server receive?
-      print("CLIENT TO SERVER ROUND 1: check receive")
+      #client saves new model
+      print("client saves new model")
       running_tasks = []
-      running_tasks.append(Process(target=self.s.receive_message))
-
-      #run tasks and join
-      for running_task in running_tasks:
-          running_task.start()
-      for running_task in running_tasks: #do some straggler handling here
-          running_task.join()
+      for client in self.clients:
+        running_tasks.append(Process(target=client.receive_message()))
+      self.run_tasks(running_tasks)
       
-
-
-      #average models here
-      # self.server.aggregate()
-
-      # return model
+      return model
 
 def main():
   runner = RunTraining(5)
