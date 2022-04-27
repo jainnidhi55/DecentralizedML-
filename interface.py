@@ -235,7 +235,7 @@ class RunTraining: #TODO: make it work end to end. create a new server. blah bla
       return model
 
 def main():
-  runner = RunTraining(5)
+  runner = RunTraining(5) #comment
   runner.forward()
 
 if __name__ == '__main__':
