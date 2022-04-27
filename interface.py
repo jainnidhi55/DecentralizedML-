@@ -140,6 +140,7 @@ class Server: #todo: send indices of data to client
       else:
         msg_sum += weights[message_curr_i] * message_curr.content
     return msg_sum / len(messages)
+  
 
   #server sends 1
   def send_message(self, message):
