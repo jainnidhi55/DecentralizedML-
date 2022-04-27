@@ -8,6 +8,7 @@ Original file is located at
 """
 # import socket
 
+print("importing libraries")
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -18,20 +19,21 @@ import multiprocessing
 import numpy as np
 import math
 
+print("downloading mnist")
 mndata = MNIST('data/')
 IMAGES_TRAIN, LABELS_TRAIN = mndata.load_training()
 IMAGES_TEST, LABELS_TEST = mndata.load_testing()
-IMAGES_TRAIN = np.asarray(IMAGES_TRAIN)
-IMAGES_TEST = np.asarray(IMAGES_TEST)
+IMAGES_TRAIN = np.asarray(IMAGES_TRAIN).reshape((-1, 1, 28, 28))
+IMAGES_TEST = np.asarray(IMAGES_TEST).reshape((-1, 1, 28, 28))
 
 class CNN(nn.Module): #random CNN found from online
     def __init__(self):
         # Cindy: not sure if Net is missing, plz check
         super(CNN, self).__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.conv1 = nn.Conv2d(1, 6, 5)
         self.pool = nn.MaxPool2d(2, 2)
         self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc1 = nn.Linear(256, 120)
         self.fc2 = nn.Linear(120, 84)
         self.fc3 = nn.Linear(84, 10)
 
@@ -39,6 +41,7 @@ class CNN(nn.Module): #random CNN found from online
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
         x = torch.flatten(x, 1) # flatten all dimensions except batch
+        # print("x shape step 1: ", x.shape)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
@@ -56,7 +59,7 @@ class Client():
     self.model = CNN() 
 
     # TRAINING HYPERPARAMETERS
-    self.batch_size = bsz
+    self.bsz = bsz
     self.num_epochs = epochs
     # SGD inputs
     self.random_seed = 0
@@ -71,6 +74,7 @@ class Client():
     # DATA
     self.train_partititon = IMAGES_TRAIN[indices[0]:indices[1]]
     self.label_partition = LABELS_TRAIN[indices[0]:indices[1]]
+    print("TRAIN: type train partiion: ", type(self.train_partititon))
     # self.train_set = torch.utils.data.DataLoader(self.train_partititon, batch_size=bsz, shuffle=True)
     # self.test_set = None
   
@@ -82,24 +86,27 @@ class Client():
   def train(self, round_num):
     # sgd algo
     torch.manual_seed(self.random_seed)
-    optimizer = optim.SGD(self.params, lr = self.lr, momentum = self.momentum, weight_decay = self.weight_decay, dampening = self.dampening, nesterov = self.nesterov, maximize = self.maximize)
+    optimizer = optim.SGD(self.params, lr = self.lr, momentum = self.momentum, weight_decay = self.weight_decay, dampening = self.dampening, nesterov = self.nesterov)
     losses = []
     for _ in range(self.num_epochs):
       epoch_loss = 0.0
-      for i in range(len(int(math.ceil(self.train_partititon)/self.bsz))):
-        data = self.train_partititon[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]
-        target = self.label_partition[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]
+      for i in range(int(math.ceil(len(self.train_partititon)/self.bsz))):
+        data = torch.tensor(self.train_partititon[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]).float()
+        target = torch.tensor(self.label_partition[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]).float()
+        target = F.one_hot(target.to(torch.int64), 10).float()
+        # print("data shape: , target shape: ", data.shape, target.shape)
         
         optimizer.zero_grad()
         output = self.model(data)
-        loss = nn.MSELoss(output, target)
+        loss_fn = nn.MSELoss()
+        loss = loss_fn(output, target)
         epoch_loss += loss.item()
         loss.backward()
         optimizer.step()
         losses.append(epoch_loss)
     
     print("client uid finished training: ", self.uid, np.mean(np.asarray(losses)))
-    self.send_message(Message(content=self.model.parameters, round_num=round_num))
+    self.send_message(Message(content=self.model.parameters(), round_num=round_num))
   
   #send message to server
   def send_message(self, msg):
@@ -160,6 +167,7 @@ class Server: #todo: send indices of data to client
   
   def receive_message(self, client): #waits for the next recieved message, times out after a point
     msg = client.queue.get().content
+    print("server recieved msg  from ", client.uid)
     return msg
   
 
@@ -168,9 +176,9 @@ class Server: #todo: send indices of data to client
 # Neha
 class Message:
 
-  def __init__(self, content, sender=None, receiver=None):
+  def __init__(self, content, round_num = 0, sender=None, receiver=None):
     self.content = content #numpy array of weights
-    self.round_number = 0
+    self.round_num = round_num
 
 class RunTraining: #TODO: make it work end to end. create a new server. blah blah blah 
 
@@ -180,15 +188,15 @@ class RunTraining: #TODO: make it work end to end. create a new server. blah bla
     self.client_to_process_dict= {}
     self.num_rounds = 1
 
-    NUM_TRAINING_POINTS = 60000
-    num_training_per_client = NUM_TRAINING_POINTS / num_clients
+    NUM_TRAINING_POINTS = 96
+    num_training_per_client = NUM_TRAINING_POINTS // num_clients
 
     for i in range(num_clients):
       curr_client_idxs = [i * num_training_per_client, (i + 1) * num_training_per_client]
       curr_client = self.s.spawn_new_client(data_ind_if_not_replica=curr_client_idxs)
       self.clients.append(curr_client)
 
-  def run_tasks(running_tasks):
+  def run_tasks(self, running_tasks):
     for running_task in running_tasks:
           running_task.start()
     for running_task in running_tasks: #do some straggler handling here
@@ -235,7 +243,7 @@ class RunTraining: #TODO: make it work end to end. create a new server. blah bla
       return model
 
 def main():
-  runner = RunTraining(5) #comment
+  runner = RunTraining(3) #comment
   runner.forward()
 
 if __name__ == '__main__':
