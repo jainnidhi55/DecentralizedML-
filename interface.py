@@ -38,6 +38,8 @@ class CNN(nn.Module): #random CNN found from online
         self.fc3 = nn.Linear(84, 10)
 
     def forward(self, x):
+        # for param in (self.parameters()):
+        #   print("forward param: ", param)
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
         x = torch.flatten(x, 1) # flatten all dimensions except batch
@@ -209,7 +211,7 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
     self.client_to_process_dict= {}
     self.num_rounds = num_rounds
 
-    NUM_TRAINING_POINTS = 60000
+    NUM_TRAINING_POINTS = 96
     num_training_per_client = NUM_TRAINING_POINTS // num_clients
 
     for i in range(num_clients):
@@ -228,7 +230,7 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
     test_preds = torch.argmax(model(torch.tensor(IMAGES_TEST).float()), dim=1)
     test_labels = torch.tensor(LABELS_TEST)
     accuracy = (torch.sum(test_preds == test_labels)) / (len(test_labels))
-    print("accuracy: ", accuracy)
+    # print("accuracy: ", accuracy, test_preds.tolist())
     return accuracy
 
 
