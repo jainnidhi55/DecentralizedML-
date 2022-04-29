@@ -63,8 +63,7 @@ class Client():
     self.num_epochs = epochs
     # SGD inputs
     self.random_seed = 0
-    self.params = self.model.parameters() 
-    self.lr = 0.01
+    self.lr = 0.001
     self.momentum = 0
     self.weight_decay = 0
     self.dampening = 0
@@ -74,7 +73,6 @@ class Client():
     # DATA
     self.train_partititon = IMAGES_TRAIN[indices[0]:indices[1]]
     self.label_partition = LABELS_TRAIN[indices[0]:indices[1]]
-    print("TRAIN: type train partiion: ", type(self.train_partititon))
     # self.train_set = torch.utils.data.DataLoader(self.train_partititon, batch_size=bsz, shuffle=True)
     # self.test_set = None
   
@@ -84,9 +82,10 @@ class Client():
   # train local round 
   # added model bc need inplace modification for multiprocessing - Neha
   def train(self, round_num):
+
     # sgd algo
     torch.manual_seed(self.random_seed)
-    optimizer = optim.SGD(self.params, lr = self.lr, momentum = self.momentum, weight_decay = self.weight_decay, dampening = self.dampening, nesterov = self.nesterov)
+    optimizer = optim.SGD(self.model.parameters(), lr = self.lr, momentum = self.momentum, weight_decay = self.weight_decay, dampening = self.dampening, nesterov = self.nesterov)
     losses = []
     for _ in range(self.num_epochs):
       epoch_loss = 0.0
@@ -94,7 +93,6 @@ class Client():
         data = torch.tensor(self.train_partititon[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]).float()
         target = torch.tensor(self.label_partition[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]).float()
         target = F.one_hot(target.to(torch.int64), 10).float()
-        # print("data shape: , target shape: ", data.shape, target.shape)
         
         optimizer.zero_grad()
         output = self.model(data)
@@ -106,20 +104,27 @@ class Client():
         losses.append(epoch_loss)
     
     print("client uid finished training: ", self.uid, np.mean(np.asarray(losses)))
-    self.send_message(Message(content=self.model.parameters(), round_num=round_num))
+
+    parameters_to_send = []
+    for parameter in self.model.parameters():
+      parameters_to_send.append(parameter.data.detach())
+    self.send_message(Message(content=parameters_to_send, round_num=round_num))
   
   #send message to server
   def send_message(self, msg):
     #execute the random delay
-    print("sending message from client ", self.uid);
+    # print("sending message from client ", self.uid)
     self.queue.put(msg)
 
   #recieve aggregated model from server
   def receive_message(self):
-    current_parameters = self.model.parameters()
+    current_parameters = list(self.model.parameters())
+    
     updated_parameters = self.queue.get().content
-    for param_i in range(len(updated_parameters)):
-      current_parameters[param_i] = updated_parameters[param_i]
+    
+    for param_i in range(len(current_parameters)):
+      current_parameters[param_i].data = updated_parameters[param_i]
+
 
 class Server: #todo: send indices of data to client
   def __init__(self):
@@ -151,15 +156,29 @@ class Server: #todo: send indices of data to client
     return self.client_id_to_metadata_dict[self.latest_client_uid][0]
 
   #write code to have the weights from clients collected in organized fashion
+  #messages = [Message]
   def aggregate(self, messages, weights): #aggregate local training rounds (Averaging) 
-    msg_sum = None
+    
+    assert(len(messages) > 0)
+    
+    num_parameters = len(messages[0].content)
+    assert(num_parameters > 0)
+
+    
+    msg_sum = [None for i in range(num_parameters)] #list of size message_curr.content
+    # with torch.no_grad():
     for message_curr_i in range(len(messages)):
       message_curr = messages[message_curr_i]
-      if msg_sum is None:
-        msg_sum = message_curr.content
+      if msg_sum[0] is None:
+        for i in range(num_parameters):
+          msg_sum[i] = message_curr.content[i].data
       else:
-        msg_sum += weights[message_curr_i] * message_curr.content
-    return msg_sum / len(messages)
+        for i in range(num_parameters):
+          msg_sum[i] += weights[message_curr_i] * message_curr.content[i]
+    
+    for i in range(num_parameters):
+      msg_sum[i] = msg_sum[i] / len(messages)
+    return msg_sum
 
   #server sends 1
   def send_message(self, client, message):
@@ -167,9 +186,8 @@ class Server: #todo: send indices of data to client
     client.queue.put(message)
   
   def receive_message(self, client): #waits for the next recieved message, times out after a point
-    print("server receiving message: ")
-    msg = client.queue.get().content
-    print("server recieved msg  from ", client.uid)
+    msg = client.queue.get()
+    # print("server recieved msg  from ", client.uid)
     return msg
   
 
@@ -182,15 +200,16 @@ class Message:
     self.content = content #numpy array of weights
     self.round_num = round_num
 
-class RunTraining: #TODO: make it work end to end. create a new server. blah blah blah 
+class RunTraining: #TODO: training and stuff seems sequential ...... that's bad 
+#TODO: make sure that it's not the same paramters being passed around ..........
 
-  def __init__(self, num_clients):
+  def __init__(self, num_clients, num_rounds=1):
     self.s = Server()
     self.clients = []
     self.client_to_process_dict= {}
-    self.num_rounds = 1
+    self.num_rounds = num_rounds
 
-    NUM_TRAINING_POINTS = 96
+    NUM_TRAINING_POINTS = 60000
     num_training_per_client = NUM_TRAINING_POINTS // num_clients
 
     for i in range(num_clients):
@@ -203,50 +222,64 @@ class RunTraining: #TODO: make it work end to end. create a new server. blah bla
           running_task.start()
     for running_task in running_tasks: #do some straggler handling here
         running_task.join()
+  
+  def get_accuracy(self):
+    model = self.clients[0].model
+    test_preds = torch.argmax(model(torch.tensor(IMAGES_TEST).float()), dim=1)
+    test_labels = torch.tensor(LABELS_TEST)
+    accuracy = (torch.sum(test_preds == test_labels)) / (len(test_labels))
+    print("accuracy: ", accuracy)
+    return accuracy
+
 
   def forward(self):
-    print("called forward")
+    # print("called forward")
 
-    model = None #averaged model
+    model_parameters = None #averaged model
 
     for round_num in range(self.num_rounds): #num global rounds
 
       #train a round of clients in parallel
-      print("train a round of clients in parallel")
+      # print("train a round of clients in parallel")
       running_tasks = []
       for client in self.clients:
         running_tasks.append(Process(target=client.train(round_num)))
       self.run_tasks(running_tasks)
 
       #server receives trained models from each client
-      print("server receives trained models from each client")
+      # print("server receives trained models from each client")
       messages = []
       for client in self.clients:
         messages.append(self.s.receive_message(client))
 
       #aggregate models
-      print("aggregate models")
-      model = self.s.aggregate(messages, [1 for msg in messages])
+      # print("aggregate models")
+      # print("mdoel parameters example: ", messages[0].content)
+      # print("mdoel parameters example: ", len(messages[0].content))
+      model_parameters = self.s.aggregate(messages, [1 for msg in messages])
 
       #server sends new model to all clients in parallel
-      print("server sends new model to all clients in parallel")
+      # print("server sends new model to all clients in parallel")
       running_tasks = []
       for client in self.clients:
-        running_tasks.append(Process(target=self.s.send_message(client, Message(content=model.parameters, round_num=round_num))))
+        running_tasks.append(Process(target=self.s.send_message(client, Message(content=model_parameters, round_num=round_num))))
       self.run_tasks(running_tasks)
 
       #client saves new model
-      print("client saves new model")
+      # print("client saves new model")
       running_tasks = []
       for client in self.clients:
         running_tasks.append(Process(target=client.receive_message()))
       self.run_tasks(running_tasks)
       
-      return model
+      # return model_parameters
+      self.get_accuracy()
 
 def main():
-  runner = RunTraining(3) #comment
+  runner = RunTraining(3, num_rounds=5) #comment
   runner.forward()
+  print("final accuracy: ")
+  runner.get_accuracy()
 
 if __name__ == '__main__':
     main()
