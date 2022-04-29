@@ -111,6 +111,7 @@ class Client():
   #send message to server
   def send_message(self, msg):
     #execute the random delay
+    print("sending message from client ", self.uid);
     self.queue.put(msg)
 
   #recieve aggregated model from server
