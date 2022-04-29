@@ -122,10 +122,10 @@ class Client():
     
     print("client uid finished training: ", self.uid, np.mean(np.asarray(losses)))
 
-    parameters_to_send = []
-    for parameter in self.model.parameters():
-      parameters_to_send.append(parameter.data.detach())
-    self.send_message(Message(content=parameters_to_send, round_num=round_num))
+    # parameters_to_send = []
+    # for parameter in self.model.parameters():
+    #   parameters_to_send.append(parameter.data.detach())
+    self.send_message(Message(content=self.model.state_dict(), round_num=round_num))
   
   #send message to server
   def send_message(self, msg):
@@ -135,13 +135,33 @@ class Client():
 
   #recieve aggregated model from server
   def receive_message(self):
+
     # print ("client ", self.uid, " recieving message from server")
-    current_parameters = list(self.model.parameters())
+    # og_params = list(self.model.parameters()).copy()
+    # og_data = torch.clone(list(self.model.parameters())[0].data)
+
+    og_params = []
+    for param in self.model.parameters():
+      curr_og_param = torch.clone(param.data)
+      og_params.append(curr_og_param)
     
+    # print("receieve message: ", og_data == param.data)
+      
     updated_parameters = self.queue.get().content
+    self.model.load_state_dict(updated_parameters)
+
+    new_params = []
+    for param in self.model.parameters():
+      curr_new_param = torch.clone(param.data)
+      new_params.append(curr_new_param)
     
-    for param_i in range(len(current_parameters)): #(comment out for now)
-      current_parameters[param_i].data = updated_parameters[param_i]
+    all_params_diff = True
+    for i in range(len(og_params)):
+      curr_bool = torch.all(og_params[i]==new_params[i])
+      all_params_diff = all_params_diff and not(curr_bool)
+    print("recieve message equality :", all_params_diff)
+    
+    # print(og_params == list(self.model.parameters()))
 
 
 class Server: #todo: send indices of data to client
@@ -177,6 +197,8 @@ class Server: #todo: send indices of data to client
   #messages = [Message]
   def aggregate(self, messages, weights): #aggregate local training rounds (Averaging) 
     
+    return messages[0].content
+
     assert(len(messages) > 0)
     
     num_parameters = len(messages[0].content)
@@ -228,7 +250,7 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
     self.client_to_process_dict= {}
     self.num_rounds = num_rounds
 
-    NUM_TRAINING_POINTS = 60000
+    NUM_TRAINING_POINTS = 96
     num_training_per_client = NUM_TRAINING_POINTS // num_clients
 
     for i in range(num_clients):
