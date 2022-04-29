@@ -64,7 +64,7 @@ class Client():
     # SGD inputs
     self.random_seed = 0
     self.params = self.model.parameters() 
-    self.lr = 0.1
+    self.lr = 0.01
     self.momentum = 0
     self.weight_decay = 0
     self.dampening = 0
@@ -166,6 +166,7 @@ class Server: #todo: send indices of data to client
     client.queue.put(message)
   
   def receive_message(self, client): #waits for the next recieved message, times out after a point
+    print("server receiving message: ")
     msg = client.queue.get().content
     print("server recieved msg  from ", client.uid)
     return msg
