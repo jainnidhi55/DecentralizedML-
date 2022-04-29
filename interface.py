@@ -14,8 +14,9 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 from mnist import MNIST
-from multiprocessing import Process
-import multiprocessing
+# from multiprocessing import Process
+import torch.multiprocessing as multiprocessing
+from torch.multiprocessing import Process
 import numpy as np
 import math
 
@@ -38,7 +39,13 @@ class CNN(nn.Module): #random CNN found from online
         self.fc3 = nn.Linear(84, 10)
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
+
+        # x = self.pool(F.relu(self.conv1(x)))
+        x = F.relu(x)
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = self.pool(x)
+
         x = self.pool(F.relu(self.conv2(x)))
         x = torch.flatten(x, 1) # flatten all dimensions except batch
         # print("x shape step 1: ", x.shape)
@@ -69,6 +76,9 @@ class Client():
     self.dampening = 0
     self.nesterov = False
     self.maximize = False
+    self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr, momentum = self.momentum, weight_decay = self.weight_decay, dampening = self.dampening, nesterov = self.nesterov)
+
+
 
     # DATA
     self.train_partititon = IMAGES_TRAIN[indices[0]:indices[1]]
@@ -83,24 +93,31 @@ class Client():
   # added model bc need inplace modification for multiprocessing - Neha
   def train(self, round_num):
 
+    # print("client ", self.uid, " started training")
     # sgd algo
-    torch.manual_seed(self.random_seed)
-    optimizer = optim.SGD(self.model.parameters(), lr = self.lr, momentum = self.momentum, weight_decay = self.weight_decay, dampening = self.dampening, nesterov = self.nesterov)
+    
+    # torch.manual_seed(self.random_seed)
+    
     losses = []
-    for _ in range(self.num_epochs):
+    for e in range(self.num_epochs):
+      # print("epoch ", e)
       epoch_loss = 0.0
+
       for i in range(int(math.ceil(len(self.train_partititon)/self.bsz))):
         data = torch.tensor(self.train_partititon[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]).float()
         target = torch.tensor(self.label_partition[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]).float()
         target = F.one_hot(target.to(torch.int64), 10).float()
         
-        optimizer.zero_grad()
+        
+        self.optimizer.zero_grad()
+        # print("about to run model forward on batch")
         output = self.model(data)
+        # print("getting loss")
         loss_fn = nn.MSELoss()
         loss = loss_fn(output, target)
         epoch_loss += loss.item()
         loss.backward()
-        optimizer.step()
+        self.optimizer.step()
         losses.append(epoch_loss)
     
     print("client uid finished training: ", self.uid, np.mean(np.asarray(losses)))
@@ -118,12 +135,13 @@ class Client():
 
   #recieve aggregated model from server
   def receive_message(self):
+    # print ("client ", self.uid, " recieving message from server")
     current_parameters = list(self.model.parameters())
     
     updated_parameters = self.queue.get().content
     
-    for param_i in range(len(current_parameters)):
-      current_parameters[param_i].data = updated_parameters[param_i]
+    # for param_i in range(len(current_parameters)): #(comment out for now)
+    #   current_parameters[param_i].data = updated_parameters[param_i]
 
 
 class Server: #todo: send indices of data to client
@@ -183,6 +201,7 @@ class Server: #todo: send indices of data to client
   #server sends 1
   def send_message(self, client, message):
     # for (client, _) in self.client_id_to_metadata_dict.values():
+    # print("server sending message to client ", client.uid)
     client.queue.put(message)
   
   def receive_message(self, client): #waits for the next recieved message, times out after a point
@@ -224,12 +243,14 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
         running_task.join()
   
   def get_accuracy(self):
-    model = self.clients[0].model
-    test_preds = torch.argmax(model(torch.tensor(IMAGES_TEST).float()), dim=1)
-    test_labels = torch.tensor(LABELS_TEST)
-    accuracy = (torch.sum(test_preds == test_labels)) / (len(test_labels))
-    print("accuracy: ", accuracy)
-    return accuracy
+    with torch.no_grad():
+      model = self.clients[0].model
+      return 0
+      # test_preds = torch.argmax(model(torch.tensor(IMAGES_TEST).float()), dim=1)
+      # test_labels = torch.tensor(LABELS_TEST)
+      # accuracy = (torch.sum(test_preds == test_labels)) / (len(test_labels))
+      # print("accuracy: ", accuracy)
+      # return accuracy
 
 
   def forward(self):
@@ -273,7 +294,7 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
       self.run_tasks(running_tasks)
       
       # return model_parameters
-      self.get_accuracy()
+      # self.get_accuracy()
 
 def main():
   runner = RunTraining(3, num_rounds=5) #comment
