@@ -243,7 +243,7 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
       # print("train a round of clients in parallel")
       running_tasks = []
       for client in self.clients:
-        running_tasks.append(Process(target=client.train(round_num)))
+        running_tasks.append(Process(target=client.train, args=(round_num,)))
       self.run_tasks(running_tasks)
 
       #server receives trained models from each client
@@ -262,14 +262,14 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
       # print("server sends new model to all clients in parallel")
       running_tasks = []
       for client in self.clients:
-        running_tasks.append(Process(target=self.s.send_message(client, Message(content=model_parameters, round_num=round_num))))
+        running_tasks.append(Process(target=self.s.send_message, args=(client, Message(content=model_parameters, round_num=round_num))))
       self.run_tasks(running_tasks)
 
       #client saves new model
       # print("client saves new model")
       running_tasks = []
       for client in self.clients:
-        running_tasks.append(Process(target=client.receive_message()))
+        running_tasks.append(Process(target=client.receive_message))
       self.run_tasks(running_tasks)
       
       # return model_parameters
