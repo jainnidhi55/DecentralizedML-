@@ -140,8 +140,8 @@ class Client():
     
     updated_parameters = self.queue.get().content
     
-    # for param_i in range(len(current_parameters)): #(comment out for now)
-    #   current_parameters[param_i].data = updated_parameters[param_i]
+    for param_i in range(len(current_parameters)): #(comment out for now)
+      current_parameters[param_i].data = updated_parameters[param_i]
 
 
 class Server: #todo: send indices of data to client
@@ -228,7 +228,7 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
     self.client_to_process_dict= {}
     self.num_rounds = num_rounds
 
-    NUM_TRAINING_POINTS = 96
+    NUM_TRAINING_POINTS = 60000
     num_training_per_client = NUM_TRAINING_POINTS // num_clients
 
     for i in range(num_clients):
@@ -245,12 +245,11 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
   def get_accuracy(self):
     with torch.no_grad():
       model = self.clients[0].model
-      return 0
-      # test_preds = torch.argmax(model(torch.tensor(IMAGES_TEST).float()), dim=1)
-      # test_labels = torch.tensor(LABELS_TEST)
-      # accuracy = (torch.sum(test_preds == test_labels)) / (len(test_labels))
-      # print("accuracy: ", accuracy)
-      # return accuracy
+      test_preds = torch.argmax(model(torch.tensor(IMAGES_TEST).float()), dim=1)
+      test_labels = torch.tensor(LABELS_TEST)
+      accuracy = (torch.sum(test_preds == test_labels)) / (len(test_labels))
+      print("accuracy: ", accuracy)
+      return accuracy
 
 
   def forward(self):
