@@ -28,12 +28,17 @@ mndata = MNIST('data/')
 IMAGES_TRAIN, LABELS_TRAIN = mndata.load_training()
 IMAGES_TEST, LABELS_TEST = mndata.load_testing()
 IMAGES_TRAIN = np.asarray(IMAGES_TRAIN).reshape((-1, 1, 28, 28))
-np.random.shuffle(IMAGES_TRAIN)
 IMAGES_TEST = np.asarray(IMAGES_TEST).reshape((-1, 1, 28, 28))
+
+#shuffle 
+shuffled_ids = [i for i in range(len(IMAGES_TRAIN))]
+np.random.shuffle(shuffled_ids)
+IMAGES_TRAIN = np.asarray([IMAGES_TRAIN[i] for i in shuffled_ids])
+LABELS_TRAIN = np.asarray([LABELS_TRAIN[i] for i in shuffled_ids])
+
 
 class CNN(nn.Module): #random CNN found from online
     def __init__(self):
-        # Cindy: not sure if Net is missing, plz check
         super(CNN, self).__init__()
         self.conv1 = nn.Conv2d(1, 6, 5)
         self.pool = nn.MaxPool2d(2, 2)
@@ -79,7 +84,7 @@ class Client():
     self.weight_decay = 0
     self.dampening = 0
     self.nesterov = False
-    self.maximize = False
+    # self.maximize = False
     self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr, momentum = self.momentum, weight_decay = self.weight_decay, dampening = self.dampening, nesterov = self.nesterov)
 
 
@@ -87,45 +92,23 @@ class Client():
     # DATA
     self.train_partititon = IMAGES_TRAIN[indices[0]:indices[1]]
     self.label_partition = LABELS_TRAIN[indices[0]:indices[1]]
-    # self.train_set = torch.utils.data.DataLoader(self.train_partititon, batch_size=bsz, shuffle=True)
-    # self.test_set = None
   
   def copy():
     return None
 
-  # train local round 
-  # added model bc need inplace modification for multiprocessing - Neha
+  # train local round
   def train(self, round_num):
     # sgd algo
     
     # torch.manual_seed(self.random_seed)
     if (round_num != 0):
-      # updated_parameters = self.queue.get().content
-      # with torch.no_grad():
-      #   counter = 0
-      #   for param in self.model.parameters():
-      #     # param = updated_parameters[counter]
-      #     param.copy_(updated_parameters[counter])
-      #     counter += 1
       with torch.no_grad():  
         updated_parameters = self.queue.get().content
         self.model.load_state_dict(updated_parameters)
-        # print("client ", self.uid, "recieving weights: ", updated_parameters["conv1.weight"])
     
-    train_accuracies = []
-    for i in range(int(math.ceil(len(self.train_partititon)/self.bsz))):
-      data = torch.tensor(self.train_partititon[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]).float()
-      target = torch.tensor(self.label_partition[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]).float()
-      with torch.no_grad():
-        output = self.model(data).float()
-        accuracy = torch.sum(torch.argmax(output, dim=1) == target) / (1.0 * len(target))
-        train_accuracies.append(accuracy)
-
-    print("training accuracy before loading model: ", np.mean(np.asarray(train_accuracies)))
-      
-
+    print("train accuracy before loading model", self.uid, get_accuracy(self.model.state_dict(), self.train_partititon, self.label_partition))
     
-    # print("client ", self.uid, "training with weights: ", self.model.state_dict()["conv1.weight"])
+
     losses = []
     accuracies = []
     for e in range(self.num_epochs):
@@ -139,9 +122,7 @@ class Client():
         
         
         self.optimizer.zero_grad()
-        # print("about to run model forward on batch")
         output = self.model(data).float()
-        # print("getting loss")
         loss_fn = nn.CrossEntropyLoss()
         loss = loss_fn(output.float(), target.type(torch.LongTensor))
         epoch_loss += loss.item()
@@ -153,63 +134,17 @@ class Client():
           accuracies.append(accuracy)
     
     print("client uid finished training: ", self.uid, " training loss: ", np.mean(np.asarray(losses)), " training acc: ", np.mean(np.asarray(accuracies)))
-
-    with torch.no_grad():
-      model = self.model
-      test_preds = torch.argmax(model(torch.tensor(IMAGES_TEST).float()), dim=1)
-      test_labels = torch.tensor(LABELS_TEST)
-      accuracy = torch.sum(test_preds == test_labels) / (1.0 * len(test_labels))
-      print("test accuracy ", accuracy)
-
-    # parameters_to_send = []
-    # for parameter in self.model.parameters():
-    #   parameters_to_send.append(parameter.data.detach())
     self.send_message(Message(content=self.model.state_dict(), round_num=round_num))
   
   #send message to server
   def send_message(self, msg):
     #execute the random delay
     # print("sending message from client ", self.uid)
-    # print("client ", self.uid, "sending weights: ", msg.content["conv1.weight"])
     self.queue.put(msg)
 
   #recieve aggregated model from server
   def receive_message(self):
     pass
-
-    # print ("client ", self.uid, " recieving message from server")
-    # og_params = list(self.model.parameters()).copy()
-    # og_data = torch.clone(list(self.model.parameters())[0].data)
-
-    # og_params = []
-    # for param in self.model.parameters():
-    #   curr_og_param = torch.clone(param.data)
-    #   og_params.append(curr_og_param)
-    
-    # # print("receieve message: ", og_data == param.data)
-
-    # with torch.no_grad():  
-    #   updated_parameters = self.queue.get().content
-    #   self.model.load_state_dict(updated_parameters)
-
-    # print("client ", self.uid, "recieved weights: ", updated_parameters["conv1.weight"])
-
-    # new_params = []
-    # for param in self.model.parameters():
-    #   curr_new_param = torch.clone(param.data)
-    #   new_params.append(curr_new_param)
-    
-    # all_params_diff = True
-    # for i in range(len(og_params)):
-    #   curr_bool = torch.all(og_params[i]==new_params[i])
-    #   all_params_diff = all_params_diff and not(curr_bool)
-    # print("recieve message equality :", all_params_diff)
-
-
-    # print("client ", self.uid, "update weights: ", self.model.state_dict()["conv1.weight"])
-    
-    
-    # print(og_params == list(self.model.parameters()))
 
 
 class Server: #todo: send indices of data to client
@@ -256,32 +191,6 @@ class Server: #todo: send indices of data to client
       return messages[0].content
 
 
-
-    # return messages[0].content
-
-    assert(len(messages) > 0)
-    
-    num_parameters = len(messages[0].content)
-    assert(num_parameters > 0)
-
-    
-    msg_sum = [None for i in range(num_parameters)] #list of size message_curr.content
-    # with torch.no_grad():
-    for message_curr_i in range(len(messages)):
-      message_curr = messages[message_curr_i]
-      if msg_sum[0] is None:
-        for i in range(num_parameters):
-          msg_sum[i] = message_curr.content[i].data
-      else:
-        for i in range(num_parameters):
-          msg_sum[i] += weights[message_curr_i] * message_curr.content[i]
-  
-    
-    for i in range(num_parameters):
-      msg_sum[i] = msg_sum[i] / len(messages)
-    return msg_sum
-
-  #server sends 1
   def send_message(self, client, message):
     # for (client, _) in self.client_id_to_metadata_dict.values():
     # print("server sending message to client ", client.uid)
@@ -293,6 +202,22 @@ class Server: #todo: send indices of data to client
     return msg
   
 
+def get_accuracy(model_parameters, images, labels):
+    with torch.no_grad():
+      model = CNN()
+      model.load_state_dict(model_parameters)
+      
+      bsz = 32
+      accuracies = []
+      for i in range(int(math.ceil(len(images)/bsz))):
+        data = torch.tensor(images[i * bsz: min((i+1) * bsz, len(images))]).float()
+        target = torch.tensor(labels[i * bsz: min((i+1) * bsz, len(images))]).float()
+        with torch.no_grad():
+          output = model(data).float()
+          accuracy = torch.sum(torch.argmax(output, dim=1) == target) / (1.0 * len(target))
+          accuracies.append(accuracy)
+
+      return(np.mean(np.asarray(accuracies)))
 
 
 # Neha
@@ -302,8 +227,7 @@ class Message:
     self.content = content #numpy array of weights
     self.round_num = round_num
 
-class RunTraining: #TODO: training and stuff seems sequential ...... that's bad 
-#TODO: make sure that it's not the same paramters being passed around ..........
+class RunTraining:
 
   def __init__(self, num_clients, num_rounds=1):
     self.s = Server()
@@ -325,20 +249,10 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
     for running_task in running_tasks: #do some straggler handling here
         running_task.join()
   
-  def get_accuracy(self):
-    with torch.no_grad():
-      model = self.clients[0].model
-      test_preds = torch.argmax(model(torch.tensor(IMAGES_TEST).float()), dim=1)
-      test_labels = torch.tensor(LABELS_TEST)
-      accuracy = torch.sum(test_preds == test_labels) / (1.0 * len(test_labels))
-      print("accuracy: ", accuracy)
-      return accuracy
-
-
+  
   def forward(self):
-    # print("called forward")
 
-    model_parameters = None #averaged model
+    self.model_parameters = None #averaged model
 
     for round_num in range(self.num_rounds): #num global rounds
 
@@ -357,15 +271,13 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
 
       #aggregate models
       # print("aggregate models")
-      # print("mdoel parameters example: ", messages[0].content)
-      # print("mdoel parameters example: ", len(messages[0].content))
-      model_parameters = self.s.aggregate(messages, [1 for msg in messages])
+      self.model_parameters = self.s.aggregate(messages, [1 for msg in messages])
 
       #server sends new model to all clients in parallel
       # print("server sends new model to all clients in parallel")
       running_tasks = []
       for client in self.clients:
-        running_tasks.append(Process(target=self.s.send_message, args=(client, Message(content=model_parameters, round_num=round_num))))
+        running_tasks.append(Process(target=self.s.send_message, args=(client, Message(content=self.model_parameters, round_num=round_num))))
       self.run_tasks(running_tasks)
 
       #client saves new model
@@ -377,13 +289,14 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
       
       # return model_parameters
       # self.get_accuracy()
-      print("\n")
 
 def main():
   runner = RunTraining(2, num_rounds=5) #comment
   runner.forward()
-  print("final accuracy: ")
-  runner.get_accuracy()
+  print("final train accuracy: ")
+  print(get_accuracy(runner.model_parameters, IMAGES_TRAIN, LABELS_TRAIN))
+  print("final test accuracy: ")
+  print(get_accuracy(runner.model_parameters, IMAGES_TEST, LABELS_TEST))
 
 if __name__ == '__main__':
     main()
