@@ -57,7 +57,6 @@ class CNN(nn.Module): #random CNN found from online
 
         x = self.pool(F.relu(self.conv2(x)))
         x = torch.flatten(x, 1) # flatten all dimensions except batch
-        # print("x shape step 1: ", x.shape)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
@@ -65,11 +64,14 @@ class CNN(nn.Module): #random CNN found from online
 
 # cindy
 class Client():
-  def __init__(self, uid, replica_group_id, queue, bsz=32, epochs=20, indices=[0, 50]): #todo: fix initialization (get data, initialize model). port #?
+  def __init__(self, uid, replica_group_id, queue, bsz=32, epochs=20, indices=[0, 50], byzantine=False):
     
     self.uid = uid
     self.replica_group_id = replica_group_id
     self.queue = queue
+    self.indices = indices
+
+    self.byzantine = byzantine
     
     # MODEL
     self.model = CNN() 
@@ -103,7 +105,8 @@ class Client():
     # torch.manual_seed(self.random_seed)
     if (round_num != 0):
       with torch.no_grad():  
-        updated_parameters = self.queue.get().content
+        while (not self.queue.empty()):
+          updated_parameters = self.queue.get().content
         self.model.load_state_dict(updated_parameters)
     
     print("train accuracy before loading model", self.uid, get_accuracy(self.model.state_dict(), self.train_partititon, self.label_partition))
@@ -147,32 +150,37 @@ class Client():
     pass
 
 
-class Server: #todo: send indices of data to client
-  def __init__(self):
+class Server: #todo: next level of byzantine is wrong #s and use replicas for agreement
+  def __init__(self, benign_p = 0, byzantine_p = 1):
     self.client_id_to_metadata_dict = {} 
     #client_id_to_metadata_dict[client_uid] = (client object, replica_group_id)
 
     self.replica_group_id_to_client_uids = {}
-    #replica_id_to_client_copy[replica_group_id] = (primary client uid, [client uids corresponding to this replica_group])
+    #replica_group_id_to_client_uids[replica_group_id] = (primary client uid, [client uids corresponding to this replica_group])
 
     self.latest_client_uid = 1025 #non priviliged ports are > 1023
     self.latest_replica_group_id = 0
 
+    self.benign_p = benign_p
+    self.byzantine_p = byzantine_p
+
   #replica_id is specified if this new client is spawned to be a replica of group replica_id. Otherwise, None
   #returns new client uid
-  def spawn_new_client(self, make_replica = False, replica_group_id = None, replica_client_uid = None, data_ind_if_not_replica = None): #TODO 
+  def spawn_new_client(self, make_replica = False, replica_group_id = None, replica_client_uid = None, data_ind = None, byzantine = False): #TODO 
     self.latest_client_uid += 1
     if make_replica:
       #assign new client the exact copy of original client 
-      self.client_id_to_metadata_dict[self.latest_client_uid] = (self.client_id_to_metadata_dict[replica_client_uid][0].copy(), replica_group_id) #TODO client .copy()
+      new_replica_client = Client(self.latest_client_uid,replica_group_id, multiprocessing.Queue(), indices=data_ind)
+      self.client_id_to_metadata_dict[self.latest_client_uid] = (new_replica_client, replica_group_id) #TODO client .copy()
 
       #add new client to replica data
       self.replica_group_id_to_client_uids[replica_group_id][1].append(self.latest_client_uid)
     else:
       self.latest_replica_group_id += 1
       new_client_q = multiprocessing.Queue()
-      new_client = Client(self.latest_client_uid,self.latest_replica_group_id, new_client_q, indices=data_ind_if_not_replica)
+      new_client = Client(self.latest_client_uid, self.latest_replica_group_id, new_client_q, indices=data_ind, byzantine=byzantine)
       self.client_id_to_metadata_dict[self.latest_client_uid] = (new_client, self.latest_replica_group_id) 
+      self.replica_group_id_to_client_uids[self.latest_replica_group_id] = (self.latest_client_uid, [])
 
     return self.client_id_to_metadata_dict[self.latest_client_uid][0]
 
@@ -180,15 +188,34 @@ class Server: #todo: send indices of data to client
   #messages = [Message]
   def aggregate(self, messages, weights): #aggregate local training rounds (Averaging) 
     assert(len(messages) > 0)
-    if len(messages) == 1:
-      return messages[0].content
+    valid_messages = []
+    bad_client_idxs = [] #index in primary list in run trainig
+    for i in range(len(messages)):
+      if messages[i] != None:
+        valid_messages.append(messages[i])
+      else:
+        bad_client_idxs.append(i)
+
+    if len(valid_messages) == 0: #  TODO: handle this case
+      return None 
+
+    if len(valid_messages) == 1:
+      return (valid_messages[0].content, bad_client_idxs) 
     else:
-      for i in range(1, len(messages)):
-        for k,v in messages[i].content.items():
-          messages[0].content[k] += (weights[i] * v)
-      for k,v in messages[0].content.items():
-        messages[0].content[k] = messages[0].content[k] / len(messages)
-      return messages[0].content
+      for i in range(1, len(valid_messages)):
+        for k,v in valid_messages[i].content.items():
+          valid_messages[0].content[k] += (weights[i] * v)
+      for k,v in valid_messages[0].content.items():
+        valid_messages[0].content[k] = valid_messages[0].content[k] / len(valid_messages)
+      return (valid_messages[0].content, bad_client_idxs)
+
+  def change_primary(self, group_id):
+    #replica_group_id_to_client_uids[replica_group_id] = (primary client uid, [client uids corresponding to this replica_group])
+    (old_primary_id, _) = self.replica_group_id_to_client_uids[group_id]
+    new_primary_id = self.replica_group_id_to_client_uids[group_id][1][0]
+    new_replicas = self.replica_group_id_to_client_uids[group_id][1][1:]
+    new_replicas.append(old_primary_id)
+    self.replica_group_id_to_client_uids[group_id] = (new_primary_id, new_replicas)
 
 
   def send_message(self, client, message):
@@ -199,6 +226,13 @@ class Server: #todo: send indices of data to client
   def receive_message(self, client): #waits for the next recieved message, times out after a point
     msg = client.queue.get()
     # print("server recieved msg  from ", client.uid)
+    p = self.benign_p
+    if client.byzantine:
+      p = self.byzantine_p
+    random_num = np.random.rand()
+    if random_num < p:
+      print("bad client alert")
+      return None
     return msg
   
 
@@ -229,19 +263,28 @@ class Message:
 
 class RunTraining:
 
-  def __init__(self, num_clients, num_rounds=1):
+  def __init__(self, num_clients, num_replicas=0, num_rounds=1, num_byzantine = 1):
     self.s = Server()
     self.clients = []
     self.client_to_process_dict= {}
     self.num_rounds = num_rounds
+    self.num_replicas = num_replicas
+    self.num_byzantine = num_byzantine
 
-    NUM_TRAINING_POINTS = 60000
+    NUM_TRAINING_POINTS = 192*4 #60000
     num_training_per_client = NUM_TRAINING_POINTS // num_clients
 
+    byzantine_client_idxs = np.random.choice(num_clients, size=self.num_byzantine, replace=False)
     for i in range(num_clients):
+      
+      curr_client_is_byzantine = (i in byzantine_client_idxs)
       curr_client_idxs = [i * num_training_per_client, (i + 1) * num_training_per_client]
-      curr_client = self.s.spawn_new_client(data_ind_if_not_replica=curr_client_idxs)
+      curr_client = self.s.spawn_new_client(data_ind=curr_client_idxs, byzantine=curr_client_is_byzantine)
       self.clients.append(curr_client)
+      
+      for _ in range(self.num_replicas):
+        replica = self.s.spawn_new_client(make_replica = True, replica_group_id = curr_client.replica_group_id, replica_client_uid = curr_client.uid, data_ind = curr_client.indices)
+        self.clients.append(replica)
 
   def run_tasks(self, running_tasks):
     for running_task in running_tasks:
@@ -254,24 +297,39 @@ class RunTraining:
 
     self.model_parameters = None #averaged model
 
+    bad_client_idxs = []
+
     for round_num in range(self.num_rounds): #num global rounds
+
+      #test: change primary
+      
 
       #train a round of clients in parallel
       # print("train a round of clients in parallel")
+      primaries = []
+      for _, v in self.s.replica_group_id_to_client_uids.items():
+        (primary_client_uid, _) = v
+        client = self.s.client_id_to_metadata_dict[primary_client_uid][0]
+        primaries.append(client)
+        
       running_tasks = []
-      for client in self.clients:
+      for client in primaries: 
         running_tasks.append(Process(target=client.train, args=(round_num,)))
       self.run_tasks(running_tasks)
 
       #server receives trained models from each client
       # print("server receives trained models from each client")
       messages = []
-      for client in self.clients:
+      for client in primaries:
         messages.append(self.s.receive_message(client))
 
       #aggregate models
       # print("aggregate models")
-      self.model_parameters = self.s.aggregate(messages, [1 for msg in messages])
+      (self.model_parameters, bad_client_idxs) = self.s.aggregate(messages, [1 for msg in messages])
+
+      for bad_client_idx in bad_client_idxs:
+        bad_gid = primaries[bad_client_idx].replica_group_id
+        self.s.change_primary(bad_gid)
 
       #server sends new model to all clients in parallel
       # print("server sends new model to all clients in parallel")
@@ -282,16 +340,16 @@ class RunTraining:
 
       #client saves new model
       # print("client saves new model")
-      running_tasks = []
-      for client in self.clients:
-        running_tasks.append(Process(target=client.receive_message))
-      self.run_tasks(running_tasks)
+      # running_tasks = []
+      # for client in self.clients:
+      #   running_tasks.append(Process(target=client.receive_message))
+      # self.run_tasks(running_tasks)
       
       # return model_parameters
       # self.get_accuracy()
 
 def main():
-  runner = RunTraining(2, num_rounds=5) #comment
+  runner = RunTraining(num_clients=5, num_replicas=1, num_rounds=3, num_byzantine=2) #comment
   runner.forward()
   print("final train accuracy: ")
   print(get_accuracy(runner.model_parameters, IMAGES_TRAIN, LABELS_TRAIN))
