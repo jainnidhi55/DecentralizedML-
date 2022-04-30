@@ -112,6 +112,19 @@ class Client():
         self.model.load_state_dict(updated_parameters)
         # print("client ", self.uid, "recieving weights: ", updated_parameters["conv1.weight"])
     
+    train_accuracies = []
+    for i in range(int(math.ceil(len(self.train_partititon)/self.bsz))):
+      data = torch.tensor(self.train_partititon[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]).float()
+      target = torch.tensor(self.label_partition[i * self.bsz: min((i+1) * self.bsz, len(self.train_partititon))]).float()
+      with torch.no_grad():
+        output = self.model(data).float()
+        accuracy = torch.sum(torch.argmax(output, dim=1) == target) / (1.0 * len(target))
+        train_accuracies.append(accuracy)
+
+    print("training accuracy before loading model: ", np.mean(np.asarray(train_accuracies)))
+      
+
+    
     # print("client ", self.uid, "training with weights: ", self.model.state_dict()["conv1.weight"])
     losses = []
     accuracies = []
@@ -130,7 +143,6 @@ class Client():
         output = self.model(data).float()
         # print("getting loss")
         loss_fn = nn.CrossEntropyLoss()
-        # print("output: ", output.shape, "Target: ", target.shape)
         loss = loss_fn(output.float(), target.type(torch.LongTensor))
         epoch_loss += loss.item()
         loss.backward()
@@ -147,7 +159,7 @@ class Client():
       test_preds = torch.argmax(model(torch.tensor(IMAGES_TEST).float()), dim=1)
       test_labels = torch.tensor(LABELS_TEST)
       accuracy = torch.sum(test_preds == test_labels) / (1.0 * len(test_labels))
-      print("testing accuracy: ", accuracy)
+      print("test accuracy ", accuracy)
 
     # parameters_to_send = []
     # for parameter in self.model.parameters():
@@ -299,7 +311,7 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
     self.client_to_process_dict= {}
     self.num_rounds = num_rounds
 
-    NUM_TRAINING_POINTS = 192 * 4
+    NUM_TRAINING_POINTS = 60000
     num_training_per_client = NUM_TRAINING_POINTS // num_clients
 
     for i in range(num_clients):
@@ -368,7 +380,7 @@ class RunTraining: #TODO: training and stuff seems sequential ...... that's bad
       print("\n")
 
 def main():
-  runner = RunTraining(2, num_rounds=15) #comment
+  runner = RunTraining(2, num_rounds=5) #comment
   runner.forward()
   print("final accuracy: ")
   runner.get_accuracy()
