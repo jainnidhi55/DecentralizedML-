@@ -305,9 +305,10 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
       model_deviations = []
       for k, param in model.items():
         raw_param_deviation = abs(averages[k] - param)
-        synthesized_param_deviation = torch.sum(torch.mul(raw_param_deviation, raw_param_deviation))/torch.numel(param)
+        # synthesized_param_deviation = torch.sum(torch.mul(raw_param_deviation, raw_param_deviation))/torch.numel(param)
+        std_param_deviation = torch.sum(torch.mul(raw_param_deviation, raw_param_deviation)/averages[k])
         # print("synthesized param deviation: ", synthesized_param_deviation.item())
-        model_deviations.append(synthesized_param_deviation.item())
+        model_deviations.append(std_param_deviation.item())
         # counter +=1
         
       all_deviations.append(model_deviations)
@@ -321,7 +322,7 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
 
   #input: list of list of devations (clients * num_params)
   #output: most probable byzantine clients
-  def deviations_to_byzantine(self, client_deviations):
+  def deviations_to_byzantine(self, client_deviations, round_num, total_rounds):
 
     print(client_deviations)
 
@@ -340,7 +341,12 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
 
       byz_client_idxs_per_param[curr_param_byz_client_idx] += 1
     
-    threshold_problem_params = 5
+
+    min_threshold = int(num_params * 0.5)
+    max_threshold = int(num_params * 0.9)
+    threshold_problem_params = ((max_threshold - min_threshold) * (1 - round_num/total_rounds)) + min_threshold
+    
+    # threshold_problem_params = 5
     byz_client_idxs = np.where(byz_client_idxs_per_param > threshold_problem_params)[0]
     return np.asarray(ids)[byz_client_idxs]
   
@@ -458,7 +464,7 @@ class RunTraining:
           non_dropped_models.append((message.send_id, message.content))
 
       all_deviations = self.s.find_deviation(non_dropped_models, self.model_parameters)
-      outlier_client_uids = list(self.s.deviations_to_byzantine(all_deviations))
+      outlier_client_uids = list(self.s.deviations_to_byzantine(all_deviations, round_num, self.num_rounds))
       
       print("outlier client uids: ", outlier_client_uids)
 
@@ -497,7 +503,7 @@ class RunTraining:
 
 
 def main():
-  runner = RunTraining(num_clients=5, num_replicas=1, num_rounds=4, num_byzantine=1) #comment
+  runner = RunTraining(num_clients=5, num_replicas=1, num_rounds=4, num_byzantine=4) #comment
   runner.forward()
   print("final train accuracy: ")
   print(get_accuracy(runner.model_parameters, IMAGES_TRAIN, LABELS_TRAIN))
