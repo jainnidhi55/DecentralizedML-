@@ -242,15 +242,26 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
     if len(valid_messages) == 0: #  TODO: handle this case
       return None 
 
-    if len(valid_messages) == 1:
-      return (valid_messages[0].content, bad_client_ids) 
-    else:
-      for i in range(1, len(valid_messages)):
-        for k,v in valid_messages[i].content.items():
-          valid_messages[0].content[k] += (weights[i] * v)
-      for k,v in valid_messages[0].content.items():
-        valid_messages[0].content[k] = valid_messages[0].content[k] / len(valid_messages)
-      return (valid_messages[0].content, bad_client_ids)
+    average_model = dict()
+    for i in range(len(valid_messages)):
+      for k, v in valid_messages[i].content.items():
+        if not (k in average_model):
+          average_model[k] = weights[i] * v
+        else:
+          average_model[k] += weights[i] * v
+    for k in average_model:
+      average_model[k] = average_model[k] / len(valid_messages)
+    return (average_model, bad_client_ids)
+
+    # if len(valid_messages) == 1:
+    #   return (valid_messages[0].content, bad_client_ids) 
+    # else:
+    #   for i in range(1, len(valid_messages)):
+    #     for k,v in valid_messages[i].content.items():
+    #       valid_messages[0].content[k] += (weights[i] * v)
+    #   for k,v in valid_messages[0].content.items():
+    #     valid_messages[0].content[k] = valid_messages[0].content[k] / len(valid_messages)
+    #   return (valid_messages[0].content, bad_client_ids)
 
   def change_primary(self, group_id):
     #replica_group_id_to_client_uids[replica_group_id] = (primary client uid, [client uids corresponding to this replica_group])
@@ -439,9 +450,12 @@ class RunTraining:
 
       non_dropped_models = []
       #for i in range(len(primaries)):
-      for client in primaries:
-        if (client.uid not in delayed_client_ids):
-          non_dropped_models.append((client.uid, client.model.state_dict()))
+      # for client in primaries:
+      #   if (client.uid not in delayed_client_ids):
+      #     non_dropped_models.append((client.uid, client.model.state_dict()))
+      for message in messages:
+        if message.send_id not in delayed_client_ids:
+          non_dropped_models.append((message.send_id, message.content))
 
       all_deviations = self.s.find_deviation(non_dropped_models, self.model_parameters)
       outlier_client_uids = list(self.s.deviations_to_byzantine(all_deviations))
