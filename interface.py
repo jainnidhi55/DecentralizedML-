@@ -21,7 +21,7 @@ from torch.multiprocessing import Process
 import numpy as np
 import math
 
-np.random.seed(0)
+# np.random.seed(0)
 
 print("downloading mnist")
 mndata = MNIST('data/')
@@ -106,9 +106,9 @@ class Client():
       with torch.no_grad():  
         while (not self.queue.empty()):
           updated_parameters = self.queue.get().content
-        print("client before training ", self.uid, " recieved: ", updated_parameters["conv1.weight"][0])
+        # print("client before training ", self.uid, " recieved: ", updated_parameters["conv1.weight"][0])
         self.model.load_state_dict(updated_parameters)
-        print("client before training ", self.uid, " loaded: ", self.model.state_dict()["conv1.weight"][0])
+        # print("client before training ", self.uid, " loaded: ", self.model.state_dict()["conv1.weight"][0])
     
     print("train accuracy before loading model", self.uid, get_accuracy(self.model.state_dict(), self.train_partititon, self.label_partition))
     
@@ -147,10 +147,10 @@ class Client():
           accuracies.append(accuracy)
     
     print("client uid finished training: ", self.uid, " training loss: ", np.mean(np.asarray(losses)), " training acc: ", np.mean(np.asarray(accuracies)))
-    print("client uid, ",  self.uid, " finished training before sending with weights: ", self.model.state_dict()["conv1.weight"][0])
+    # print("client uid, ",  self.uid, " finished training before sending with weights: ", self.model.state_dict()["conv1.weight"][0])
 
     if (self.byzantine):
-      print("randomizing weights")
+      # print("randomizing weights")
       #return random weights
       with torch.no_grad():
         model_dict = {} # self.model.state_dict()
@@ -165,16 +165,16 @@ class Client():
         
         
         self.send_message(Message(content=model_dict, round_num=round_num))
-        print("byzantine client ", self.uid, " sends weights to server: ", model_dict["conv1.weight"][0])
+        # print("byzantine client ", self.uid, " sends weights to server: ", model_dict["conv1.weight"][0])
     else:
       self.send_message(Message(content=self.model.state_dict(), round_num=round_num))
-      print("client ", self.uid, " sends weights to server: ", self.model.state_dict()["conv1.weight"][0])
+      # print("client ", self.uid, " sends weights to server: ", self.model.state_dict()["conv1.weight"][0])
 
   
   #send message to server
   def send_message(self, msg):
     #execute the random delay
-    print("sending message from client ", self.uid)
+    # print("sending message from client ", self.uid)
     self.queue.put(msg)
 
   #recieve aggregated model from server
@@ -183,7 +183,7 @@ class Client():
 
 
 class Server: #todo: next level of byzantine is wrong #s and use replicas for agreement
-  def __init__(self, benign_p = 0, byzantine_p = 0.5):
+  def __init__(self, benign_p = 0, byzantine_p = 0):
     self.client_id_to_metadata_dict = {} 
     #client_id_to_metadata_dict[client_uid] = (client object, replica_group_id)
 
@@ -227,6 +227,7 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
         valid_messages.append(messages[i])
       else:
         bad_client_idxs.append(i)
+    print("dropped due to delay: ", bad_client_idxs)
 
     if len(valid_messages) == 0: #  TODO: handle this case
       return None 
@@ -252,20 +253,20 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
 
   def send_message(self, client, message):
     # for (client, _) in self.client_id_to_metadata_dict.values():
-    print("server sending message to client ", client.uid)
+    # print("server sending message to client ", client.uid)
     client.queue.put(message)
   
   def receive_message(self, client): #waits for the next recieved message, times out after a point
     msg = client.queue.get()
-    print("server recieved msg  from ", client.uid)
+    # print("server recieved msg  from ", client.uid)
     p = self.benign_p
     if client.byzantine:
       p = self.byzantine_p
     random_num = np.random.rand()
     if random_num < p:
-      print("bad client alert")
+      print("bad client alert: ")
       return None
-    print("server recieves weights from client ", client.uid, " :", msg.content["conv1.weight"][0])
+    # print("server recieves weights from client ", client.uid, " :", msg.content["conv1.weight"][0])
     return msg
   
   #input: all_state_dicts, averages (1 state dict that has avg of all weights)
@@ -285,8 +286,12 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
       # counter = 0
       model_deviations = []
       for k, param in model.items():
-        model_deviations.append(abs(averages[k] - param))
+        raw_param_deviation = abs(averages[k] - param)
+        synthesized_param_deviation = torch.sum(torch.mul(raw_param_deviation, raw_param_deviation))/torch.numel(param)
+        # print("synthesized param deviation: ", synthesized_param_deviation.item())
+        model_deviations.append(synthesized_param_deviation.item())
         # counter +=1
+      
       all_deviations.append(model_deviations)
     
     return np.asarray(all_deviations)
@@ -300,15 +305,16 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
 
     num_params = 10
     byz_client_idxs_per_param = np.asarray([0 for i in range(num_params)])
-    for param_i in range(len(num_params)):
+    for param_i in range(num_params):
       #get top problematic clients of current param, accordingly modify byz_client_idxs_per_param
       curr_param_deviations = client_deviations[:, param_i]
+      # print("deviations_to_byzantine: ", curr_param_deviations)
       curr_param_byz_client_idx = (-curr_param_deviations).argsort()[:threshold_top_deviations]
 
       byz_client_idxs_per_param[curr_param_byz_client_idx] += 1
     
     threshold_problem_params = 5
-    byz_client_idxs = np.where(byz_client_idxs_per_param > threshold_problem_params)
+    byz_client_idxs = np.where(byz_client_idxs_per_param > threshold_problem_params)[0]
     return byz_client_idxs
   
 
@@ -351,11 +357,16 @@ class RunTraining:
     num_training_per_client = NUM_TRAINING_POINTS // num_clients
 
     byzantine_client_idxs = np.random.choice(num_clients, size=self.num_byzantine, replace=False)
+    # print("byzantine client idxs: ", byzantine_client_idxs)
     for i in range(num_clients):
       
       curr_client_is_byzantine = (i in byzantine_client_idxs)
       curr_client_idxs = [i * num_training_per_client, (i + 1) * num_training_per_client]
       curr_client = self.s.spawn_new_client(data_ind=curr_client_idxs, byzantine=curr_client_is_byzantine)
+
+      if (curr_client_is_byzantine):
+        print(curr_client.uid, " is byzantine")
+
       self.clients.append(curr_client)
       
       for _ in range(self.num_replicas):
@@ -403,13 +414,16 @@ class RunTraining:
       # print("aggregate models")
       (self.model_parameters, bad_client_idxs) = self.s.aggregate(messages, [1 for msg in messages])
 
-      # non_dropped_models = []
-      # for i in range(len(primaries)):
-      #   if (i not in bad_client_idxs):
-      #     non_dropped_models.append(client.model.state_dict())
-      # all_deviations = self.s.find_deviation(non_dropped_models, self.model_parameters)
-      # proposed_bad_client_idxs = self.s.deviations_to_byzantine(all_deviations)
-      # print("Proposed bad client idxs: ", proposed_bad_client_idxs)
+      non_dropped_models = []
+      non_dropped_client_uids = []
+      for i in range(len(primaries)):
+        if (i not in bad_client_idxs):
+          non_dropped_models.append(primaries[i].model.state_dict())
+          non_dropped_client_uids.append(primaries[i].uid)
+      all_deviations = self.s.find_deviation(non_dropped_models, self.model_parameters)
+      proposed_bad_client_uids = np.asarray(non_dropped_client_uids)[self.s.deviations_to_byzantine(all_deviations)]
+      
+      print("Proposed bad client uids: ", proposed_bad_client_uids)
 
       for bad_client_idx in bad_client_idxs:
         bad_gid = primaries[bad_client_idx].replica_group_id
@@ -418,7 +432,7 @@ class RunTraining:
       #server sends new model to all clients in parallel
       # print("server sends new model to all clients in parallel")
       running_tasks = []
-      print("server sends to all clients: ", self.model_parameters["conv1.weight"][0])
+      # print("server sends to all clients: ", self.model_parameters["conv1.weight"][0])
       for client in self.clients:
         running_tasks.append(Process(target=self.s.send_message, args=(client, Message(content=self.model_parameters, round_num=round_num))))
       self.run_tasks(running_tasks)
@@ -434,7 +448,7 @@ class RunTraining:
       # self.get_accuracy()
 
 def main():
-  runner = RunTraining(num_clients=5, num_replicas=1, num_rounds=4, num_byzantine=4) #comment
+  runner = RunTraining(num_clients=5, num_replicas=1, num_rounds=4, num_byzantine=1) #comment
   runner.forward()
   print("final train accuracy: ")
   print(get_accuracy(runner.model_parameters, IMAGES_TRAIN, LABELS_TRAIN))
