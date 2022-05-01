@@ -115,15 +115,7 @@ class Client():
         # print("client before training ", self.uid, " loaded: ", self.model.state_dict()["conv1.weight"][0])
     
     print("train accuracy before loading model", self.uid, get_accuracy(self.model.state_dict(), self.train_partititon, self.label_partition, bsz=self.bsz))
-    
-    # if (self.byzantine):
-    #   #return random weights
-    #   model_dict = self.model.state_dict()
-    #   for key in model_dict.keys():
-    #     model_dict[key] = torch.rand(model_dict[key].shape)
-    #   self.send_message(Message(content=model_dict, round_num=round_num))
 
-    # else:
 
     # sgd algo
     losses = []
@@ -146,12 +138,7 @@ class Client():
         loss.backward()
         self.optimizer.step()
         losses.append(epoch_loss)
-        # with torch.no_grad():
-          # accuracy = torch.sum(torch.argmax(output, dim=1) == target) / (1.0 * len(target))
-          # accuracies.append(accuracy)
-    
-    # print("client uid finished training: ", self.uid, " training loss: ", np.mean(np.asarray(losses)), " training acc: ", np.mean(np.asarray(accuracies)))
-    # print("client uid, ",  self.uid, " finished training before sending with weights: ", self.model.state_dict()["conv1.weight"][0])
+
 
     if (self.byzantine):
       # print("randomizing weights")
@@ -159,9 +146,6 @@ class Client():
       with torch.no_grad():
         model_dict = {} # self.model.state_dict()
         for k in self.model.state_dict().keys():
-          # model_dict[key] = torch.rand(self.model.state_dict()[key].shape)
-          # model_dict[k] = torch.from_numpy(np.random.rand(*self.model.state_dict()[k].shape))
-          
           random_factor = (np.random.rand(*self.model.state_dict()[k].shape) * 2) - 1
 
           # random_factor = (np.random.rand() * 2) - 1
@@ -188,8 +172,9 @@ class Client():
     pass
 
 
-class Server: #todo: next level of byzantine is wrong #s and use replicas for agreement
-  def __init__(self, benign_p = 0, byzantine_p = 0):
+#threshold range is 0.3 - 1
+class Server:
+  def __init__(self, threshold = 1):
     self.client_id_to_metadata_dict = {} 
     #client_id_to_metadata_dict[client_uid] = (client object, replica_group_id)
 
@@ -199,18 +184,18 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
     self.latest_client_uid = 1025 #non priviliged ports are > 1023
     self.latest_replica_group_id = 0
 
-    self.benign_p = benign_p
-    self.byzantine_p = byzantine_p
+    self.benign_p = (1 - threshold)
+    self.byzantine_p = (1 - threshold) + 0.3
     self.bytes_sent_over_network = 0
 
   #replica_id is specified if this new client is spawned to be a replica of group replica_id. Otherwise, None
   #returns new client uid
-  def spawn_new_client(self, make_replica = False, replica_group_id = None, replica_client_uid = None, data_ind = None, byzantine = False): #TODO 
+  def spawn_new_client(self, make_replica = False, replica_group_id = None, replica_client_uid = None, data_ind = None, byzantine = False):
     self.latest_client_uid += 1
     if make_replica:
       #assign new client the exact copy of original client 
       new_replica_client = Client(self.latest_client_uid,replica_group_id, multiprocessing.Queue(), indices=data_ind)
-      self.client_id_to_metadata_dict[self.latest_client_uid] = (new_replica_client, replica_group_id) #TODO client .copy()
+      self.client_id_to_metadata_dict[self.latest_client_uid] = (new_replica_client, replica_group_id)
 
       #add new client to replica data
       self.replica_group_id_to_client_uids[replica_group_id][1].append(self.latest_client_uid)
@@ -229,39 +214,29 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
   def aggregate(self, messages, weights): #aggregate local training rounds (Averaging) 
     assert(len(messages) > 0)
     valid_messages = []
-    bad_client_ids = [] #index in primary list in run trainig
+    good_client_ids = [] #index in primary list in run trainig
     for i in range(len(messages)):
       if messages[i] != None:
         valid_messages.append(messages[i])
-      else:
-        bad_client_ids.append(messages[i].send_id)
+        good_client_ids.append(messages[i].send_id)
 
-    # averaged_model = self.average([message.content for message in valid_messages], weights)
-    # return (averaged_model, bad_client_ids)
 
-    if len(valid_messages) == 0: #  TODO: handle this case
+    if len(valid_messages) == 0:
       return None 
 
+    weight_sum = 0
     average_model = dict()
     for i in range(len(valid_messages)):
+      weight_sum += weights[i]
       for k, v in valid_messages[i].content.items():
         if not (k in average_model):
           average_model[k] = weights[i] * v
         else:
           average_model[k] += weights[i] * v
     for k in average_model:
-      average_model[k] = average_model[k] / len(valid_messages)
-    return (average_model, bad_client_ids)
+      average_model[k] = average_model[k] / weight_sum
+    return (average_model, good_client_ids)
 
-    # if len(valid_messages) == 1:
-    #   return (valid_messages[0].content, bad_client_ids) 
-    # else:
-    #   for i in range(1, len(valid_messages)):
-    #     for k,v in valid_messages[i].content.items():
-    #       valid_messages[0].content[k] += (weights[i] * v)
-    #   for k,v in valid_messages[0].content.items():
-    #     valid_messages[0].content[k] = valid_messages[0].content[k] / len(valid_messages)
-    #   return (valid_messages[0].content, bad_client_ids)
 
   def change_primary(self, group_id):
     #replica_group_id_to_client_uids[replica_group_id] = (primary client uid, [client uids corresponding to this replica_group])
@@ -314,15 +289,11 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
       all_deviations.append(model_deviations)
       client_ids.append(client_id)
 
-      # #comment out later
-      # (client, _) = self.client_id_to_metadata_dict[client_id]
-      # print("accuracy of model in find deviation: ", client_id, get_accuracy(model, IMAGES_TRAIN[client.indices[0]:client.indices[1]], LABELS_TRAIN[client.indices[0]:client.indices[1]]))
-    
     return (client_ids, np.asarray(all_deviations))
 
   #input: list of list of devations (clients * num_params)
   #output: most probable byzantine clients
-  def deviations_to_byzantine(self, client_deviations, round_num, total_rounds):
+  def deviations_to_byzantine(self, client_deviations, round_num, total_rounds, byz_stdv_min = 0.5, byz_stdv_max=0.9):
 
     print(client_deviations)
 
@@ -342,8 +313,8 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
       byz_client_idxs_per_param[curr_param_byz_client_idx] += 1
     
 
-    min_threshold = int(num_params * 0.5)
-    max_threshold = int(num_params * 0.9)
+    min_threshold = int(num_params * byz_stdv_min)
+    max_threshold = int(num_params * byz_stdv_max)
     threshold_problem_params = ((max_threshold - min_threshold) * (1 - round_num/total_rounds)) + min_threshold
     
     # threshold_problem_params = 5
@@ -368,7 +339,6 @@ def get_accuracy(model_parameters, images, labels, bsz=32):
       return(np.mean(np.asarray(accuracies)))
 
 
-# Neha
 class Message:
 
   def __init__(self, content, round_num = 0, sender=None, receiver=None):
@@ -379,13 +349,18 @@ class Message:
 
 class RunTraining:
 
-  def __init__(self, num_clients, num_replicas=0, num_rounds=1, num_byzantine = 1):
-    self.s = Server()
+  def __init__(self, num_clients, num_replicas=0, num_rounds=1, num_byzantine = 1, sleep_threshold=1, byz_stdv_min=0.5, byz_stdv_max = 0.9, varying_resource_alloc = False):
+    self.s = Server(threshold = sleep_threshold)
     self.clients = []
     self.client_to_process_dict= {}
     self.num_rounds = num_rounds
     self.num_replicas = num_replicas
     self.num_byzantine = num_byzantine
+
+    self.byz_stdv_min = byz_stdv_min
+    self.byz_stdv_max = byz_stdv_max
+
+    self.varying_resource_alloc = varying_resource_alloc
 
     NUM_TRAINING_POINTS = 192*4 #60000
     num_training_per_client = NUM_TRAINING_POINTS // num_clients
@@ -421,13 +396,8 @@ class RunTraining:
 
     self.model_parameters = None #averaged model
 
-    # bad_client_idxs = []
-
     for round_num in range(self.num_rounds): #num global rounds
-
-      #test: change primary
       
-
       #train a round of clients in parallel
       # print("train a round of clients in parallel")
       primaries = []
@@ -449,22 +419,22 @@ class RunTraining:
 
       #aggregate models
       # print("aggregate models")
-      (new_parameters, delayed_client_ids) = self.s.aggregate(messages, [1 for msg in messages])
+      (new_parameters, non_delayed_client_ids) = self.s.aggregate(messages, [1 for msg in messages])
+      delayed_client_ids = []
+      for client in primaries:
+        if client.uid not in non_delayed_client_ids:
+          delayed_client_ids.append(client.uid)
       if new_parameters != None:
         self.model_parameters = new_parameters
       print("delayed client ids: ", delayed_client_ids)
 
       non_dropped_models = []
-      #for i in range(len(primaries)):
-      # for client in primaries:
-      #   if (client.uid not in delayed_client_ids):
-      #     non_dropped_models.append((client.uid, client.model.state_dict()))
       for message in messages:
-        if message.send_id not in delayed_client_ids:
+        if not(message is None): #.send_id not in delayed_client_ids:
           non_dropped_models.append((message.send_id, message.content))
 
       all_deviations = self.s.find_deviation(non_dropped_models, self.model_parameters)
-      outlier_client_uids = list(self.s.deviations_to_byzantine(all_deviations, round_num, self.num_rounds))
+      outlier_client_uids = list(self.s.deviations_to_byzantine(all_deviations, round_num, self.num_rounds, self.byz_stdv_min, self.byz_stdv_max))
       
       print("outlier client uids: ", outlier_client_uids)
 
@@ -476,13 +446,30 @@ class RunTraining:
       # good_models = []
       good_messages = []
       for message in messages:
-        if message.send_id not in bad_client_ids:
+        if not(message is None) and (message.send_id not in bad_client_ids):
           print("good id: ", message.send_id)
           good_messages.append(message)
       
-      (new_parameters, _) = self.s.aggregate(good_messages, [1 for msg in messages])
-      if new_parameters != None:
-        self.model_parameters = new_parameters
+
+      if self.varying_resource_alloc:
+        param_weights = []
+        non_dropped_messages = []
+        for message in messages:
+          if not(message is None):
+            if message.send_id in bad_client_ids:
+              param_weights.append(0.1)
+            else:
+              param_weights.append(1)
+            non_dropped_messages.append(message)
+        (new_parameters, _) = self.s.aggregate(non_dropped_messages, param_weights)
+        if new_parameters != None:
+          self.model_parameters = new_parameters
+
+      else:
+        param_weights = [1 for msg in messages]
+        (new_parameters, _) = self.s.aggregate(good_messages, param_weights)
+        if new_parameters != None:
+          self.model_parameters = new_parameters
 
       
       #server sends new model to all clients in parallel
@@ -493,17 +480,18 @@ class RunTraining:
         running_tasks.append(Process(target=self.s.send_message, args=(client, Message(content=self.model_parameters, round_num=round_num, sender=-1, receiver=client.uid))))
       self.run_tasks(running_tasks)
 
-      # change primaries
-      print("all bad client ids: ", bad_client_ids)
-      for bad_client_id in bad_client_ids:
-        (bad_primary, _) = self.s.client_id_to_metadata_dict[bad_client_id]
-        bad_gid = bad_primary.replica_group_id
-        print("changing primary for ", bad_primary.uid)
-        self.s.change_primary(bad_gid)
+      # change primaries ONLy if not doing varying allocation scheme 
+      if not(self.varying_resource_alloc):
+        print("all bad client ids: ", bad_client_ids)
+        for bad_client_id in bad_client_ids:
+          (bad_primary, _) = self.s.client_id_to_metadata_dict[bad_client_id]
+          bad_gid = bad_primary.replica_group_id
+          print("changing primary for ", bad_primary.uid)
+          self.s.change_primary(bad_gid)
 
 
 def main():
-  runner = RunTraining(num_clients=5, num_replicas=1, num_rounds=4, num_byzantine=4) #comment
+  runner = RunTraining(num_clients=5, num_replicas=1, num_rounds=4, num_byzantine=2, sleep_threshold=1, byz_stdv_min=0.5, byz_stdv_max = 0.9, varying_resource_alloc = True) #comment
   runner.forward()
   print("final train accuracy: ")
   print(get_accuracy(runner.model_parameters, IMAGES_TRAIN, LABELS_TRAIN))
@@ -515,21 +503,6 @@ if __name__ == '__main__':
     main()
 
 
-
 # #TODOS
-# currently working on: drop byzantine primary..  ok this is working but outlier detection detects non byzantine new primary
 # - move as much as possible to the server class
-# - think about what p value is really doing ... 
-# - weights
-# make super modular for easy of experiments
 # - experiments
-
-
-# timeout threshold = 5
-# --> p_benign goes up
-
-# vs 
-
-# timeout threshold = 7
-
-# para
