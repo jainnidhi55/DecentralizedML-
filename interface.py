@@ -21,6 +21,8 @@ from torch.multiprocessing import Process
 import numpy as np
 import math
 
+import sys
+
 # np.random.seed(0)
 
 print("downloading mnist")
@@ -35,7 +37,6 @@ shuffled_ids = [i for i in range(len(IMAGES_TRAIN))]
 np.random.shuffle(shuffled_ids)
 IMAGES_TRAIN = np.asarray([IMAGES_TRAIN[i] for i in shuffled_ids])
 LABELS_TRAIN = np.asarray([LABELS_TRAIN[i] for i in shuffled_ids])
-
 
 class CNN(nn.Module): #random CNN found from online
     def __init__(self):
@@ -104,9 +105,12 @@ class Client():
     # torch.manual_seed(self.random_seed)
     if (round_num != 0):
       with torch.no_grad():  
+        updated_parameters = None
         while (not self.queue.empty()):
           updated_parameters = self.queue.get().content
         # print("client before training ", self.uid, " recieved: ", updated_parameters["conv1.weight"][0])
+        if updated_parameters is None:
+          print("ERROR: client ", self.uid, " recieved no parameters")
         self.model.load_state_dict(updated_parameters)
         # print("client before training ", self.uid, " loaded: ", self.model.state_dict()["conv1.weight"][0])
     
@@ -195,6 +199,7 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
 
     self.benign_p = benign_p
     self.byzantine_p = byzantine_p
+    self.bytes_sent_over_network = 0
 
   #replica_id is specified if this new client is spawned to be a replica of group replica_id. Otherwise, None
   #returns new client uid
@@ -254,10 +259,12 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
   def send_message(self, client, message):
     # for (client, _) in self.client_id_to_metadata_dict.values():
     # print("server sending message to client ", client.uid)
+    self.bytes_sent_over_network += sys.getsizeof(message)
     client.queue.put(message)
   
   def receive_message(self, client): #waits for the next recieved message, times out after a point
     msg = client.queue.get()
+    self.bytes_sent_over_network += sys.getsizeof(msg)
     # print("server recieved msg  from ", client.uid)
     p = self.benign_p
     if client.byzantine:
@@ -464,6 +471,7 @@ def main():
   print(get_accuracy(runner.model_parameters, IMAGES_TRAIN, LABELS_TRAIN))
   print("final test accuracy: ")
   print(get_accuracy(runner.model_parameters, IMAGES_TEST, LABELS_TEST))
+  print("final bytes sent over network: ", runner.s.bytes_sent_over_network)
 
 if __name__ == '__main__':
     main()
