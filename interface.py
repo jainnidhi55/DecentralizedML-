@@ -223,20 +223,6 @@ class Server: #todo: next level of byzantine is wrong #s and use replicas for ag
 
     return self.client_id_to_metadata_dict[self.latest_client_uid][0]
 
-  
-  def average(self, models, weights):
-    if len(models) == 0:
-      return None
-
-    with torch.no_grad():
-      averaged_model = models[0]
-      for i in range(1, len(models)):
-        for k,v in models[i].items():
-          averaged_model[k] += (weights[i] * v)
-
-      for k,_ in averaged_model.items():
-        averaged_model[k] = averaged_model[k] / len(models)
-      return averaged_model
 
   #write code to have the weights from clients collected in organized fashion
   #messages = [Message]
@@ -468,15 +454,15 @@ class RunTraining:
       
       # reaggregate
       # good_models = []
-      # good_messages = []
-      # for client in primaries:
-      #   if client.uid not in bad_client_ids:
-      #     print("good id: ", client.uid)
-      #     good_models.append(client.model.state_dict())
+      good_messages = []
+      for message in messages:
+        if message.send_id not in bad_client_ids:
+          print("good id: ", message.send_id)
+          good_messages.append(message)
       
-      # new_parameters = self.s.average(good_models, [1 for msg in messages])
-      # if new_parameters != None:
-      #   self.model_parameters = new_parameters
+      (new_parameters, _) = self.s.aggregate(good_messages, [1 for msg in messages])
+      if new_parameters != None:
+        self.model_parameters = new_parameters
 
       
       #server sends new model to all clients in parallel
@@ -525,3 +511,5 @@ if __name__ == '__main__':
 # vs 
 
 # timeout threshold = 7
+
+# para
