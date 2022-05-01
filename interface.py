@@ -504,5 +504,7 @@ if __name__ == '__main__':
 
 
 # #TODOS
-# - move as much as possible to the server class
 # - experiments
+# - move as much as possible to the server class
+# - do the halving weights
+# - 125% goal : change the model
