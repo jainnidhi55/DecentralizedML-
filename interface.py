@@ -226,7 +226,7 @@ class Server:
 
 
     if len(valid_messages) == 0:
-      return None 
+      return (None, None)
 
     weight_sum = 0
     average_model = dict()
@@ -492,7 +492,7 @@ class RunTraining:
 
 
 def main():
-  runner = RunTraining(num_clients=5, num_replicas=1, num_rounds=5, num_byzantine=3, sleep_threshold=1, byz_stdv_min=0.5, byz_stdv_max = 0.9, varying_resource_alloc = False) #comment
+  runner = RunTraining(num_clients=5, num_replicas=1, num_rounds=5, num_byzantine=3, sleep_threshold=1, byz_stdv_min=0.3, byz_stdv_max = 0.9, varying_resource_alloc = True) #comment
   runner.forward()
   print("final train accuracy: ")
   print(get_accuracy(runner.model_parameters, IMAGES_TRAIN[:16000], LABELS_TRAIN[:16000]))
