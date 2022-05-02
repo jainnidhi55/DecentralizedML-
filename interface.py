@@ -240,7 +240,6 @@ class Server:
 
 
   def change_primary(self, group_id):
-    return #TODO: COMMENT THIS OUT LATER
     #replica_group_id_to_client_uids[replica_group_id] = (primary client uid, [client uids corresponding to this replica_group])
     (old_primary_id, _) = self.replica_group_id_to_client_uids[group_id]
     new_primary_id = self.replica_group_id_to_client_uids[group_id][1][0]
@@ -445,30 +444,30 @@ class RunTraining:
       
       # reaggregate
       # good_models = []
-      # good_messages = []
-      # for message in messages:
-      #   if not(message is None) and (message.send_id not in bad_client_ids):
-      #     good_messages.append(message)
+      good_messages = []
+      for message in messages:
+        if not(message is None) and (message.send_id not in bad_client_ids):
+          good_messages.append(message)
       
-      # if self.varying_resource_alloc:
-      #   param_weights = []
-      #   non_dropped_messages = []
-      #   for message in messages:
-      #     if not(message is None):
-      #       if message.send_id in bad_client_ids:
-      #         param_weights.append(0.1)
-      #       else:
-      #         param_weights.append(1)
-      #       non_dropped_messages.append(message)
-      #   (new_parameters, _) = self.s.aggregate(non_dropped_messages, param_weights)
-      #   if new_parameters != None:
-      #     self.model_parameters = new_parameters
+      if self.varying_resource_alloc:
+        param_weights = []
+        non_dropped_messages = []
+        for message in messages:
+          if not(message is None):
+            if message.send_id in bad_client_ids:
+              param_weights.append(0.1)
+            else:
+              param_weights.append(1)
+            non_dropped_messages.append(message)
+        (new_parameters, _) = self.s.aggregate(non_dropped_messages, param_weights)
+        if new_parameters != None:
+          self.model_parameters = new_parameters
 
-      # else:
-      #   param_weights = [1 for msg in messages]
-      #   (new_parameters, _) = self.s.aggregate(good_messages, param_weights)
-      #   if new_parameters != None:
-      #     self.model_parameters = new_parameters
+      else:
+        param_weights = [1 for msg in messages]
+        (new_parameters, _) = self.s.aggregate(good_messages, param_weights)
+        if new_parameters != None:
+          self.model_parameters = new_parameters
 
       
       #server sends new model to all clients in parallel
