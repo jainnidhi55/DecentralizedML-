@@ -116,6 +116,9 @@ class Client():
     
     # print("train accuracy before loading model", self.uid, get_accuracy(self.model.state_dict(), self.train_partititon, self.label_partition, bsz=self.bsz))
 
+    #test accuracy:
+    print("test accuracy")
+    print(get_accuracy(self.model.state_dict(), IMAGES_TEST, LABELS_TEST))
 
     # sgd algo
     losses = []
@@ -486,12 +489,6 @@ class RunTraining:
           bad_gid = bad_primary.replica_group_id
           # print("changing primary for ", bad_primary.uid)
           self.s.change_primary(bad_gid)
-      
-
-      print("train accuracy")
-      print(get_accuracy(self.model_parameters, IMAGES_TRAIN[:16000], LABELS_TRAIN[:16000]))
-      print("test accuracy")
-      print(get_accuracy(self.model_parameters, IMAGES_TEST, LABELS_TEST))
 
 
 def main():
