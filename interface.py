@@ -114,7 +114,7 @@ class Client():
         self.model.load_state_dict(updated_parameters)
         # print("client before training ", self.uid, " loaded: ", self.model.state_dict()["conv1.weight"][0])
     
-    print("train accuracy before loading model", self.uid, get_accuracy(self.model.state_dict(), self.train_partititon, self.label_partition, bsz=self.bsz))
+    # print("train accuracy before loading model", self.uid, get_accuracy(self.model.state_dict(), self.train_partititon, self.label_partition, bsz=self.bsz))
 
 
     # sgd algo
@@ -152,11 +152,12 @@ class Client():
           model_dict[k] = self.model.state_dict()[k] * random_factor
         
         
-        print("train accuracy of byzantine", self.uid, get_accuracy(model_dict, self.train_partititon, self.label_partition, bsz=self.bsz))
+        # print("train accuracy of byzantine", self.uid, get_accuracy(model_dict, self.train_partititon, self.label_partition, bsz=self.bsz))
         self.send_message(Message(content=model_dict, round_num=round_num, sender=self.uid, receiver=-1))
         # print("byzantine client ", self.uid, " sends weights to server: ", model_dict["conv1.weight"][0])
     else:
-      print("train accuracy after round of training", self.uid, get_accuracy(self.model.state_dict(), self.train_partititon, self.label_partition, bsz=self.bsz))
+      # print("train accuracy after round of training", self.uid, get_accuracy(self.model.state_dict(), self.train_partititon, self.label_partition, bsz=self.bsz))
+      # print("train loss after round of training", self.uid, losses[-1])
       self.send_message(Message(content=self.model.state_dict(), round_num=round_num, sender=self.uid, receiver=-1))
       # print("client ", self.uid, " sends weights to server: ", self.model.state_dict()["conv1.weight"][0])
 
@@ -239,6 +240,7 @@ class Server:
 
 
   def change_primary(self, group_id):
+    return #TODO: COMMENT THIS OUT LATER
     #replica_group_id_to_client_uids[replica_group_id] = (primary client uid, [client uids corresponding to this replica_group])
     (old_primary_id, _) = self.replica_group_id_to_client_uids[group_id]
     new_primary_id = self.replica_group_id_to_client_uids[group_id][1][0]
@@ -246,7 +248,7 @@ class Server:
     new_replicas.append(old_primary_id)
     self.replica_group_id_to_client_uids[group_id] = (new_primary_id, new_replicas)
 
-    print("old primary id: ", old_primary_id, "new primary id: ", new_primary_id)
+    # print("old primary id: ", old_primary_id, "new primary id: ", new_primary_id)
 
 
   def send_message(self, client, message):
@@ -264,7 +266,7 @@ class Server:
       p = self.byzantine_p
     random_num = np.random.rand()
     if random_num < p:
-      print("bad client alert: ")
+      # print("bad client alert: ")
       return None
     # print("server recieves weights from client ", client.uid, " :", msg.content["conv1.weight"][0])
     return msg
@@ -294,8 +296,6 @@ class Server:
   #input: list of list of devations (clients * num_params)
   #output: most probable byzantine clients
   def deviations_to_byzantine(self, client_deviations, round_num, total_rounds, byz_stdv_min = 0.5, byz_stdv_max=0.9):
-
-    print(client_deviations)
 
     (ids, deviations) = client_deviations #id: num clients, deviations: num clients X num params
     num_clients = len(deviations)
@@ -362,7 +362,7 @@ class RunTraining:
 
     self.varying_resource_alloc = varying_resource_alloc
 
-    NUM_TRAINING_POINTS = 192*4 #60000
+    NUM_TRAINING_POINTS = 16000 #192*4 #60000
     num_training_per_client = NUM_TRAINING_POINTS // num_clients
 
     byzantine_client_idxs = np.random.choice(num_clients, size=self.num_byzantine, replace=False)
@@ -383,7 +383,7 @@ class RunTraining:
         replica = self.s.spawn_new_client(make_replica = True, replica_group_id = curr_client.replica_group_id, replica_client_uid = curr_client.uid, data_ind = curr_client.indices)
         self.clients.append(replica)
     
-    print("byzantine clients: ", byzantine_client_ids)
+    # print("byzantine clients: ", byzantine_client_ids)
 
   def run_tasks(self, running_tasks):
     for running_task in running_tasks:
@@ -397,6 +397,7 @@ class RunTraining:
     self.model_parameters = None #averaged model
 
     for round_num in range(self.num_rounds): #num global rounds
+      print("round num: ", round_num)
       
       #train a round of clients in parallel
       # print("train a round of clients in parallel")
@@ -426,7 +427,7 @@ class RunTraining:
           delayed_client_ids.append(client.uid)
       if new_parameters != None:
         self.model_parameters = new_parameters
-      print("delayed client ids: ", delayed_client_ids)
+      # print("delayed client ids: ", delayed_client_ids)
 
       non_dropped_models = []
       for message in messages:
@@ -436,21 +437,19 @@ class RunTraining:
       all_deviations = self.s.find_deviation(non_dropped_models, self.model_parameters)
       outlier_client_uids = list(self.s.deviations_to_byzantine(all_deviations, round_num, self.num_rounds, self.byz_stdv_min, self.byz_stdv_max))
       
-      print("outlier client uids: ", outlier_client_uids)
+      # print("outlier client uids: ", outlier_client_uids)
 
 
       bad_client_ids = delayed_client_ids + outlier_client_uids
-      print("bad client ids: ", bad_client_ids)
+      # print("bad client ids: ", bad_client_ids)
       
       # reaggregate
       # good_models = []
       good_messages = []
       for message in messages:
         if not(message is None) and (message.send_id not in bad_client_ids):
-          print("good id: ", message.send_id)
           good_messages.append(message)
       
-
       if self.varying_resource_alloc:
         param_weights = []
         non_dropped_messages = []
@@ -482,19 +481,19 @@ class RunTraining:
 
       # change primaries ONLy if not doing varying allocation scheme 
       if not(self.varying_resource_alloc):
-        print("all bad client ids: ", bad_client_ids)
+        # print("all bad client ids: ", bad_client_ids)
         for bad_client_id in bad_client_ids:
           (bad_primary, _) = self.s.client_id_to_metadata_dict[bad_client_id]
           bad_gid = bad_primary.replica_group_id
-          print("changing primary for ", bad_primary.uid)
+          # print("changing primary for ", bad_primary.uid)
           self.s.change_primary(bad_gid)
 
 
 def main():
-  runner = RunTraining(num_clients=5, num_replicas=1, num_rounds=4, num_byzantine=2, sleep_threshold=1, byz_stdv_min=0.5, byz_stdv_max = 0.9, varying_resource_alloc = True) #comment
+  runner = RunTraining(num_clients=5, num_replicas=1, num_rounds=5, num_byzantine=3, sleep_threshold=1, byz_stdv_min=0.5, byz_stdv_max = 0.9, varying_resource_alloc = False) #comment
   runner.forward()
   print("final train accuracy: ")
-  print(get_accuracy(runner.model_parameters, IMAGES_TRAIN, LABELS_TRAIN))
+  print(get_accuracy(runner.model_parameters, IMAGES_TRAIN[:16000], LABELS_TRAIN[:16000]))
   print("final test accuracy: ")
   print(get_accuracy(runner.model_parameters, IMAGES_TEST, LABELS_TEST))
   print("final bytes sent over network: ", runner.s.bytes_sent_over_network)
