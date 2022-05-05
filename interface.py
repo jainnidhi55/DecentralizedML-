@@ -1,3 +1,9 @@
+"""
+
+To run this file, add a folder called "data" within the same home directory.
+Within data add and decompress all of the MNIST files from http://yann.lecun.com/exdb/mnist/
+
+"""
 
 
 print("importing libraries")
@@ -8,7 +14,6 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 from mnist import MNIST
-# from multiprocessing import Process
 import torch.multiprocessing as multiprocessing
 from torch.multiprocessing import Process
 import numpy as np
